@@ -728,3 +728,63 @@ kbd { font-family: inherit; background: #d6ddc913; border: 1px solid #a6b19822; 
   src: url('./assets/fonts/oswald-latin-700-normal.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+
+/* ── Кровь, комбо и новые подсказки HUD ─────────────────────────────── */
+.blood-screen {
+  position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse at 18% 12%, rgba(120,6,8,0.75), transparent 42%),
+    radial-gradient(ellipse at 82% 78%, rgba(96,4,6,0.7), transparent 46%),
+    radial-gradient(ellipse at center, transparent 38%, rgba(74,3,6,0.55) 100%);
+  mix-blend-mode: multiply; transition: opacity .18s linear;
+}
+.hud-combo {
+  position: absolute; right: 22px; top: 50%; transform: translateY(-50%);
+  display: grid; justify-items: end; gap: 1px; color: #ffd9b0; pointer-events: none;
+  text-shadow: 0 2px 18px rgba(0,0,0,.85);
+}
+.hud-combo b { font-family: var(--font-display); font-size: 52px; line-height: .9; letter-spacing: -.02em; color: #ffb37a; }
+.hud-combo span { font-size: 9px; letter-spacing: .34em; text-transform: uppercase; color: #d9a888; }
+.hud-combo i { display: block; width: 74px; height: 2px; margin-top: 4px; background: linear-gradient(90deg,#ff7a45,#ffd0a0); transform-origin: right; border-radius: 2px; }
+.hud-combo.hot b { color: #ff7a45; animation: comboPulse .5s ease-in-out infinite alternate; }
+@keyframes comboPulse { from { transform: scale(1); } to { transform: scale(1.08); } }
+
+.hud-interact {
+  position: absolute; left: 50%; bottom: 168px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 9px; padding: 8px 15px;
+  border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
+  background: rgba(8,14,12,.62); backdrop-filter: blur(8px);
+  font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: #e9efe2;
+  animation: interactIn .22s ease-out;
+}
+.hud-interact kbd {
+  font-family: var(--font-display); font-size: 12px; padding: 1px 7px; border-radius: 5px;
+  background: #dc9466; color: #1a1512;
+}
+@keyframes interactIn { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+.hud-race {
+  position: absolute; left: 22px; top: 50%; transform: translateY(-50%);
+  display: grid; gap: 2px; padding: 10px 14px; border-radius: 12px;
+  border: 1px solid rgba(83,224,176,.35); background: rgba(8,24,20,.6);
+  color: #cdf5e6; font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+}
+.hud-race b { font-family: var(--font-display); font-size: 18px; letter-spacing: .06em; color: #53e0b0; }
+.hud-race em { font-style: normal; color: #8fd8c4; }
+
+.hud-packs { color: #7fd8b6 !important; }
+.hud-throwables { display: flex; align-items: center; gap: 5px; margin: 4px 0 0; font-size: 12px; color: #e8d7b8; }
+.hud-throwables b { font-size: 13px; }
+.hud-throwables span { font-family: var(--font-display); }
+
+/* ── Профиль в телефоне: навыки и прогресс ─────────────────────────── */
+.phone-bar { height: 5px; border-radius: 4px; background: rgba(255,255,255,.12); overflow: hidden; margin: 8px 0 6px; }
+.phone-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg,#43d9a3,#a8f0c8); transition: width .3s ease; }
+.phone-perks { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 6px; }
+.phone-perks li { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.03); opacity: .55; }
+.phone-perks li.on { opacity: 1; border-color: rgba(83,224,176,.38); background: rgba(35,86,68,.28); }
+.phone-perks li > i { font-style: normal; font-size: 12px; width: 18px; text-align: center; color: #53e0b0; }
+.phone-perks li > div { flex: 1; display: grid; }
+.phone-perks b { font-size: 12px; color: #eaf3ea; }
+.phone-perks small { font-size: 10px; color: #93a79b; }
+.phone-perks span { font-size: 9px; letter-spacing: .14em; color: #7f9187; text-transform: uppercase; }

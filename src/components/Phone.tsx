@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Game, HudState, Quality } from '../game/Game';
 import { formatMoney } from '../game/economy';
 
-type AppId = 'missions' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings';
+type AppId = 'missions' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings' | 'profile';
 
 interface Props {
   game: Game | null;
@@ -21,6 +21,7 @@ const APPS: { id: AppId; label: string; glyph: string; tone: string }[] = [
   { id: 'camera', label: 'Камера', glyph: '◉', tone: '#7fb8ff' },
   { id: 'contacts', label: 'Контакты', glyph: '☎', tone: '#ffd166' },
   { id: 'map', label: 'Карта', glyph: '✦', tone: '#b18cff' },
+  { id: 'profile', label: 'Профиль', glyph: '◈', tone: '#53e0b0' },
   { id: 'settings', label: 'Настройки', glyph: '⚙', tone: '#9aa4b2' },
 ];
 
@@ -90,8 +91,8 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
           <div className="phone-wallpaper" />
           <header className="phone-head">
             <div>
-              <small>{app === 'missions' ? 'ЗАДАНИЯ' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
-              <h3>{app === 'missions' ? 'Телефон' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
+              <small>{app === 'missions' ? 'ЗАДАНИЯ' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'profile' ? 'ПРОФИЛЬ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
+              <h3>{app === 'missions' ? 'Телефон' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'profile' ? `Уровень ${hud.level}` : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
             </div>
             <button className="phone-x" onClick={onClose} aria-label="Закрыть телефон">✕</button>
           </header>
@@ -166,6 +167,46 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
                 <button className="phone-action" onClick={onOpenMap}>ОТКРЫТЬ КАРТУ</button>
               </div>
               <p className="phone-hint">Маршрут до задания прокладывается автоматически и виден на мини-карте.</p>
+            </>}
+
+            {app === 'profile' && <>
+              <div className="phone-card">
+                <div className="phone-card-top">
+                  <div><b>Уровень {hud.level}</b><small>опыт {hud.xp} / {60 + hud.level * 40}</small></div>
+                  <span className="phone-reward">{hud.kills} устранено</span>
+                </div>
+                <div className="phone-bar"><i style={{ width: `${Math.min(100, (hud.xp / (60 + hud.level * 40)) * 100)}%` }} /></div>
+                <p>Серия добиваний: ×{Math.max(1, hud.combo)} · лучших пакетов: {hud.packages}/{hud.packagesTotal}</p>
+              </div>
+
+              <div className="phone-section-title">НАВЫКИ</div>
+              <ul className="phone-perks">
+                {[
+                  ['brutal', 'Мясник', 'урон топором +15%', 2],
+                  ['looter', 'Мародёр', 'добыча +35%', 3],
+                  ['tough', 'Толстая шкура', 'входящий урон −20%', 5],
+                  ['runner', 'Бегун', 'выносливость −25% расхода', 7],
+                  ['butcher', 'Профессионал', 'легче отсекать конечности', 9],
+                  ['veteran', 'Ветеран', 'опыт +15%', 11],
+                  ['medic', 'Полевой медик', 'аптечки ×2', 14],
+                ].map(([id, name, desc, lvl]) => {
+                  const on = !!game?.perks.has(id as string);
+                  return <li key={id as string} className={on ? 'on' : ''}>
+                    <i>{on ? '✓' : '🔒'}</i>
+                    <div><b>{name as string}</b><small>{desc as string}</small></div>
+                    <span>ур. {lvl as number}</span>
+                  </li>;
+                })}
+              </ul>
+
+              <div className="phone-section-title">ЗАНЯТИЯ</div>
+              <div className="phone-card small">
+                <div className="phone-spec"><span>Спрятанные пакеты</span><b>{hud.packages} / {hud.packagesTotal}</b></div>
+                <div className="phone-spec"><span>Уличная гонка</span><b>{hud.raceActive ? `кольцо ${hud.raceGate} · ${hud.raceTime.toFixed(1)} с` : 'на старте Ocean Drive'}</b></div>
+                <div className="phone-spec"><span>Бутылки с огнём</span><b>{hud.molotovs}</b></div>
+                <div className="phone-spec"><span>Гранаты</span><b>{hud.grenades}</b></div>
+              </div>
+              <p className="phone-hint">Пакеты разбросаны по кварталам, пляжу и Ocean Drive. Трюки на трамплинах и гонка приносят деньги и опыт.</p>
             </>}
 
             {app === 'settings' && <>

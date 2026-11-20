@@ -454,6 +454,13 @@ export class AudioSys {
     this.sirenGain.gain.setTargetAtTime(Math.max(0.0001, v * 0.09), this.ctx.currentTime, 0.2);
   }
 
+  /** Раскат грома: низкий шум с длинным хвостом. */
+  thunder() {
+    if (!this.ctx) return;
+    this.noise({ dur: 2.6, type: 'lowpass', freq: 420, freqEnd: 120, q: 0.6, gain: 0.42, attack: 0.18, wet: 0.7 });
+    this.noise({ dur: 1.1, type: 'lowpass', freq: 900, freqEnd: 200, q: 0.8, gain: 0.18, attack: 0.02, wet: 0.4, delay: 0.05 });
+  }
+
   explosion() {
     if (!this.ctx) return;
     this.tone({ freq: 105, freqEnd: 26, dur: 0.85, gain: 1.15, type: 'sine', attack: 0.002, wet: 0.9 });

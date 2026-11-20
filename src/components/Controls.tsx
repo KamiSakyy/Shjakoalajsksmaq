@@ -227,6 +227,14 @@ export function Controls({ game, hud }: Props) {
             </button>
           )}
             <button
+              className="h-12 w-12 rounded-full border border-amber-300/50 bg-black/50 text-[9px] font-bold uppercase tracking-wider text-amber-100 active:scale-95"
+              onClick={() => game.throwProjectile()}
+              onContextMenu={(e) => { e.preventDefault(); game.cycleThrowable(); }}
+              aria-label="Бросить бутылку или гранату"
+            >
+              {hud.throwKind === 'molotov' ? `🍾${hud.molotovs}` : `💣${hud.grenades}`}
+            </button>
+            <button
               className="h-12 w-12 rounded-full border border-white/40 bg-black/50 text-[9px] font-bold uppercase tracking-wider text-white/80 active:scale-95"
               onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); game.setSprint(true); }}
               onPointerUp={() => game.setSprint(false)}

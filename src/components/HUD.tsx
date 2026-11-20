@@ -39,13 +39,23 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
       <div className="absolute inset-0 transition-opacity duration-300" style={{ opacity: hurt, background: 'radial-gradient(ellipse at center, transparent 40%, rgba(130,20,12,0.65) 100%)' }} />
       {hud.hp < 35 && <div className="low-health" />}
       {drops.map(d => <div key={d.id} className="blood-drop absolute" style={{ left: `${d.x}%`, top: `${d.y}%`, width: d.s, height: d.s * 1.3 }} />)}
+      {hud.bloodScreen > 0.02 && <div className="blood-screen" style={{ opacity: Math.min(0.85, hud.bloodScreen) }} />}
+      {hud.combo > 1 && (
+        <div className={`hud-combo ${hud.combo >= 5 ? 'hot' : ''}`}>
+          <b>×{hud.combo}</b>
+          <span>комбо</span>
+          <i style={{ transform: `scaleX(${Math.max(0, Math.min(1, hud.comboTimer / 3.6))})` }} />
+        </div>
+      )}
+      {hud.interact && !hud.inCar && <div className="hud-interact"><kbd>F</kbd>{hud.interact}</div>}
+      {hud.raceActive && <div className="hud-race"><b>ГОНКА</b><span>кольцо {hud.raceGate}</span><em>{hud.raceTime.toFixed(1)} с</em></div>}
       {!hud.inCar && <div className={`reticle ${hud.ads ? 'aiming' : ''}`} />}
       <div className="hud-vitals">
         {hud.sprinting && <div className="sprint-tag">БЕГ</div>}
         <Bar value={hud.hp} color="#bb7465" label="ЗДОРОВЬЕ" icon="+" />
         <Bar value={hud.stamina} color="#c6cbb1" label="СИЛЫ" icon="/" />
         {hud.weapon === 'axe' && <Bar value={hud.sharpness * 100} color="#bea77d" label="ЛЕЗВИЕ" icon="|" />}
-        <div className="hud-level">УРОВЕНЬ {hud.level}<span>{hud.kills} УСТРАНЕНО</span></div>
+        <div className="hud-level">УРОВЕНЬ {hud.level}<span>{hud.kills} УСТРАНЕНО</span><span className="hud-packs">ПАКЕТЫ {hud.packages}/{hud.packagesTotal}</span></div>
         <button type="button" className="hud-cash pointer-events-auto" onClick={onPhone} title="Открыть телефон (P)">
           <b>${Math.round(hud.cash).toLocaleString('ru-RU')}</b><span>телефон</span>
         </button>
@@ -59,6 +69,7 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
         <small className="hud-station-name">{hud.station ? `♪ ${hud.station}` : ''}</small>
         {hud.weapon !== 'axe' && !hud.inCar && <p className="hud-ammo"><strong>{hud.weapon === 'shotgun' ? hud.shells : hud.ammo}</strong><span>/ {hud.weapon === 'shotgun' ? hud.shellReserve : hud.reserve}</span></p>}
         {hud.reloading && <span className="reload-status">ПЕРЕЗАРЯДКА</span>}
+        <p className="hud-throwables"><b>{hud.throwKind === 'molotov' ? '🍾' : '💣'}</b><span>{hud.throwKind === 'molotov' ? hud.molotovs : hud.grenades}</span></p>
         {hud.inCar && (hud.carEngine > 0.05 || hud.carTires > 0.05) && <div className="car-condition"><span>ДВС {Math.round((1 - hud.carEngine) * 100)}%</span><span>ШИНЫ {Math.round((1 - hud.carTires) * 100)}%</span></div>}
       </div>
       {(hud.questTitle || hud.questObjective) && (

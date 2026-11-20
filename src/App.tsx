@@ -20,6 +20,9 @@ const initialHud: HudState = {
   stance: 'stand', fires: 0, dispatch: '', cloud: 0, nearEmergency: null, carEngine: 0, carTires: 0,
   cash: 420, bank: 1250, questTitle: '', questObjective: '', questProgress: '', questReward: 0,
   photos: 0, heliActive: false, tankActive: false, nearLoot: false, robbed: 0, qualityTier: 'Авто', fpsScale: 100,
+  combo: 0, comboTimer: 0, bloodScreen: 0, killCam: 0,
+  packages: 0, packagesTotal: 0, raceActive: false, raceGate: '', raceTime: 0, interact: null, skirt: 'stand',
+  molotovs: 3, grenades: 2, throwKind: 'molotov',
 };
 type Panel = 'settings' | 'controls' | 'characters' | 'about' | 'map' | null;
 const modes: { id: GameMode; name: string; text: string; number: string }[] = [

@@ -29,6 +29,12 @@ import { Economy } from './economy';
 import { QuestSystem, type QuestState } from './quests';
 import { AdaptiveResolution, budgetFor, detectDevice, type GfxBudget, type Quality } from './perf';
 import { GradePass } from './post';
+import { Gore } from './gore';
+import { Atmosphere } from './atmosphere';
+import { Wildlife } from './wildlife';
+import { Ambient } from './ambient';
+import { VehicleFx } from './vehicle-fx';
+import { Activities, type Interact } from './activities';
 
 export type Weapon = 'axe' | 'pistol' | 'shotgun';
 export type GameMode = 'horror' | 'peace' | 'police';
@@ -95,6 +101,20 @@ export interface HudState {
   robbed: number;
   qualityTier: string;
   fpsScale: number;
+  combo: number;
+  comboTimer: number;
+  bloodScreen: number;
+  killCam: number;
+  packages: number;
+  packagesTotal: number;
+  raceActive: boolean;
+  raceGate: string;
+  raceTime: number;
+  interact: string | null;
+  skirt: string;
+  molotovs: number;
+  grenades: number;
+  throwKind: string;
 }
 
 export type GameEvent =
@@ -102,10 +122,21 @@ export type GameEvent =
   | { type: 'hurt' }
   | { type: 'log'; text: string };
 
+const PERKS: { level: number; id: string; name: string; desc: string }[] = [
+  { level: 2, id: 'brutal', name: 'Мясник', desc: 'Урон топором +15%' },
+  { level: 3, id: 'looter', name: 'Мародёр', desc: 'Добыча с тел и карманов +35%' },
+  { level: 5, id: 'tough', name: 'Толстая шкура', desc: 'Входящий урон −20%' },
+  { level: 7, id: 'runner', name: 'Бегун', desc: 'Выносливость тратится на 25% медленнее' },
+  { level: 9, id: 'butcher', name: 'Профессионал', desc: 'Шанс отсечения и скорость замаха выше' },
+  { level: 11, id: 'veteran', name: 'Ветеран', desc: 'Опыт +15%' },
+  { level: 14, id: 'medic', name: 'Полевой медик', desc: 'Аптечки лечат вдвое сильнее' },
+];
+
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 const _d1 = new THREE.Vector3(), _d2 = new THREE.Vector3(), _r = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 
 function segSegDist2(p1: THREE.Vector3, q1: THREE.Vector3, p2: THREE.Vector3, q2: THREE.Vector3, outC1: THREE.Vector3, outC2: THREE.Vector3) {
   _d1.subVectors(q1, p1);
@@ -196,6 +227,22 @@ export class Game {
   air!: AirSupport;
   economy = new Economy();
   quests = new QuestSystem();
+  gore!: Gore;
+  atmosphere!: Atmosphere;
+  wildlife!: Wildlife;
+  ambient!: Ambient;
+  vfx!: VehicleFx;
+  activities!: Activities;
+  /** Подпись ближайшего интерактива (банкомат, магазин, гонка). */
+  interactTarget: Interact | null = null;
+  /** Разблокированные навыки. */
+  perks = new Set<string>();
+  /** Метательное: бутылки с зажигательной смесью и гранаты. */
+  molotovs = 3;
+  grenades = 2;
+  throwKind: 'molotov' | 'grenade' = 'molotov';
+  private projectiles: { mesh: THREE.Mesh; pos: THREE.Vector3; vel: THREE.Vector3; kind: 'molotov' | 'grenade'; fuse: number }[] = [];
+  private lightningTimer = 26;
   budget: GfxBudget;
   device = detectDevice();
   adaptive = new AdaptiveResolution();
@@ -387,6 +434,28 @@ export class Game {
     // разбросать предметы по городу
     this.items.scatter(this.city.spawnPoints, 40, ['medkit', 'ammo', 'shells', 'gasoline', 'whetstone']);
 
+    // ── новые слои жизни, крови и атмосферы ──────────────────────────
+    const groundAt = (x: number, z: number) => this.city.surfaceAt(x, z);
+    this.gore = new Gore(this.scene, this.particles, this.physics, groundAt, this.budget.tier);
+    this.atmosphere = new Atmosphere(
+      this.scene, this.city.spawnPoints, (z: number) => (this.ocean ? this.ocean.shoreAt(z) : 600), this.budget.tier,
+    );
+    this.atmosphere.onThunder = () => audio.thunder ?? audio.impact('blunt', 0.15);
+    this.wildlife = new Wildlife(this.scene, {
+      quality: this.budget.tier,
+      shoreAt: (z: number) => (this.ocean ? this.ocean.shoreAt(z) : 600),
+      groundAt,
+    });
+    this.ambient = new Ambient(this.scene, {
+      quality: this.budget.tier,
+      shoreAt: (z: number) => (this.ocean ? this.ocean.shoreAt(z) : 600),
+      groundAt,
+      sandStart: 525,
+      oceanDrive: 487,
+    });
+    this.vfx = new VehicleFx(this.scene, this.particles, this.budget.tier);
+    this.activities = new Activities(this.scene, groundAt);
+
     // трассеры пуль
     const tracerGeo = new THREE.CylinderGeometry(0.012, 0.004, 0.9, 5);
     tracerGeo.rotateX(Math.PI / 2);
@@ -465,6 +534,9 @@ export class Game {
         if (e.code === 'KeyX') this.setStance(this.stance === 'crouch' ? 'stand' : 'crouch');
         if (e.code === 'KeyZ') this.setStance(this.stance === 'prone' ? 'stand' : 'prone');
         if (e.code === 'KeyQ') this.toggleAds();
+        if (e.code === 'KeyG') this.throwProjectile();
+        if (e.code === 'KeyT') this.cycleThrowable();
+        if (e.code === 'KeyH') this.horn();
       }
     } else this.keys.delete(e.code);
     if (e.code === 'ShiftLeft') this.sprint = e.type === 'keydown';
@@ -749,6 +821,18 @@ export class Game {
       else this.exitCar();
       return;
     }
+    if (this.interactTarget) {
+      const res = this.activities.use(this.interactTarget);
+      if (res) {
+        if (res.money) { this.economy.add(res.money, 'Занятие'); this.onWallet?.(); }
+        if (res.xp) this.addXp(res.xp);
+        if (res.wanted) { this.police.crime(res.wanted); this.witnessed(0.8); }
+        if (res.message) { this.setLog(res.message); this.notify('Занятие', res.message); }
+        audio.magClick();
+        this.interactTarget = null;
+        return;
+      }
+    }
     const c = this.nearestCar();
     if (c) { this.enterCar(c); return; }
     const loot = this.nearestLoot();
@@ -782,7 +866,7 @@ export class Game {
   }
 
   lootNpc(n: Npc) {
-    const cash = 25 + Math.round(Math.random() * 145);
+    const cash = Math.round((25 + Math.random() * 145) * (this.perks.has('looter') ? 1.35 : 1));
     this.economy.add(cash, 'Обыск карманов');
     this.economy.robbed++;
     n.panicT = 0;
@@ -794,7 +878,7 @@ export class Game {
   }
 
   robNpc(n: Npc) {
-    const cash = 60 + Math.round(Math.random() * 220);
+    const cash = Math.round((60 + Math.random() * 220) * (this.perks.has('looter') ? 1.35 : 1));
     this.economy.add(cash, 'Ограбление прохожего');
     this.economy.robbed++;
     n.panicT = Math.max(n.panicT, 12);
@@ -852,6 +936,8 @@ export class Game {
 
   /** Взрыв любого масштаба: техника, танковый снаряд, газовый баллон. */
   bigExplosion(pos: THREE.Vector3, radius = 12, power = 1) {
+    this.atmosphere?.flashBurst(0.5 + power * 0.4);
+    this.wildlife?.scare(pos, 70);
     this.emergencies.explosion(pos);
     audio.explosion();
     const d = this.pos.distanceTo(pos);
@@ -1034,8 +1120,8 @@ export class Game {
         n.applyHit(n.lastHitPart ?? 'torso', 500, dir.clone().multiplyScalar(4), 1);
         this.particles.bloodBurst(n.position().clone().setY(1), dir, 0.95, 46);
         n.kill(dir);
-        if (n.kind === 'zombie') { this.kills++; this.killsZombie++; this.addXp(12); }
-        else { this.civiliansKilled++; this.killsHuman++; this.police.crime(2); this.witnessed(1.2); }
+        this.registerKill(n);
+        if (n.kind !== 'zombie') this.witnessed(1.2);
         c.vLong *= 0.82;
         audio.impact('flesh', 1);
         this.trauma = Math.min(1, this.trauma + 0.32);
@@ -1332,6 +1418,7 @@ export class Game {
     const camP = this.camera.position;
     type Best = { sample: BladeSample; point: THREE.Vector3; mat: Material; resistance: number; npc?: Npc; cap?: Capsule; tree?: boolean; dist: number };
     const holder: { best: Best | null } = { best: null };
+    const cleave: { npc: Npc; sample: BladeSample; point: THREE.Vector3; cap: Capsule; score: number }[] = [];
     const c1 = new THREE.Vector3(), c2 = new THREE.Vector3();
     const consider = (sample: BladeSample, a: THREE.Vector3, b: THREE.Vector3, r: number, mat: Material, resistance: number, npc?: Npc, cap?: Capsule, tree?: boolean) => {
       const d2 = segSegDist2(sample.prev, sample.pos, a, b, c1, c2);
@@ -1339,10 +1426,11 @@ export class Game {
       if (d2 < rr * rr) {
         const dist = Math.sqrt(d2);
         const score = dist - (sample.isBlade ? 1 : 0);
+        const point = c2.clone().add(c1.clone().sub(c2).normalize().multiplyScalar(r));
         if (!holder.best || score < holder.best.dist) {
-          const point = c2.clone().add(c1.clone().sub(c2).normalize().multiplyScalar(r));
           holder.best = { sample, point, mat, resistance, npc, cap, tree, dist: score };
         }
+        if (npc && cap && !cleave.some(c => c.npc === npc)) cleave.push({ npc, sample, point, cap, score });
       }
     };
     for (const n of this.npcs) {
@@ -1383,6 +1471,11 @@ export class Game {
     const { E } = this.axe.energyAt(hit.sample, dt);
     if (E < 2.5) return;
     this.resolveHit(hit, E);
+    // Рубящий замах пробивает до трёх целей: остальным достаётся 55% энергии.
+    if (hit.npc && hit.sample.isBlade && this.axe.bladeFactor() > 0.4) {
+      const rest = cleave.filter(c => c.npc !== hit.npc && c.npc.alive).sort((a, b) => a.score - b.score).slice(0, 2);
+      for (const c of rest) this.cleaveThrough(c, E * 0.55);
+    }
   }
 
   private resolveHit(hit: { sample: BladeSample; point: THREE.Vector3; mat: Material; resistance: number; npc?: Npc; cap?: Capsule; tree?: boolean }, E: number) {
@@ -1416,9 +1509,9 @@ export class Game {
         this.setLog(`Удар древком · ${Math.round(E)} Дж`);
         this.particles.dustPuff(hit.point, 2);
       } else {
-        const dmg = this.npcDamage(part, depth) * (human ? 0.55 : 1);
+        const dmg = this.npcDamage(part, depth) * (human ? 0.55 : 1) * (this.perks.has('brutal') ? 1.15 : 1);
         n.addWound(part, hit.point, 0.025 + 0.05 * depth);
-        this.particles.bloodBurst(hit.point, dir, E01, 14 + 55 * depth);
+        this.gore.hit(hit.point, dir, E01, depth, near);
         if (near) this.onEvent?.({ type: 'splash', amount: 0.25 + depth * 0.8 + E01 * 0.3 });
         const impulse = dirH.clone().multiplyScalar((0.5 + 2.4 * E01) * (part === 'torso' || part === 'head' ? 1 : 0.6));
         n.applyHit(part, dmg, impulse, 0.25 + 0.6 * depth);
@@ -1426,22 +1519,42 @@ export class Game {
         const partRu: Record<PartName, string> = { head: 'череп', torso: 'торс', armL: 'рука', armR: 'рука', foreL: 'предплечье', foreR: 'предплечье', thighL: 'бедро', thighR: 'бедро', shinL: 'голень', shinR: 'голень' };
         let txt = `${partRu[part]} · ${Math.round(E)} Дж · глубина ${Math.round(depth * 12)} см`;
         let severed = false;
-        if (part === 'head' && depth > 0.55) {
-          const obj = n.dismember('head');
-          if (obj) { this.spawnDebris(obj, dir, E01, 0.12); severed = true; txt = `РАСКОЛОЛ ЧЕРЕП · ${Math.round(E)} Дж`; }
-        } else if ((part === 'armL' || part === 'armR' || part === 'foreL' || part === 'foreR') && depth > 0.6) {
-          const obj = n.dismember(part);
-          if (obj) { this.spawnDebris(obj, dir, E01, 0.05); severed = true; txt = `ОТРУБИЛ РУКУ · ${Math.round(E)} Дж`; }
-        } else if ((part === 'thighL' || part === 'thighR' || part === 'shinL' || part === 'shinR') && depth > 0.58) {
-          const obj = n.dismember(part);
-          if (obj) { this.spawnDebris(obj, dir, E01, 0.08); severed = true; txt = `ОТРУБИЛ НОГУ · ${Math.round(E)} Дж`; }
+        // Порог отсечения зависит от остроты лезвия и силы замаха:
+        // затупленным топором рубить приходится дольше.
+        const cutPower = depth * (0.66 + 0.46 * this.axe.sharpness) * (0.8 + E01 * 0.45) * (this.perks.has('butcher') ? 1.12 : 1);
+        const limbName = part === 'armL' || part === 'armR' || part === 'foreL' || part === 'foreR' ? 'РУКУ'
+          : part === 'thighL' || part === 'thighR' || part === 'shinL' || part === 'shinR' ? 'НОГУ' : '';
+        if (part === 'head' && cutPower > 0.48) {
+          const obj = this.gore.sever(n, 'head', dir, E01);
+          if (obj) {
+            severed = true;
+            txt = `СНЁС ГОЛОВУ · ${Math.round(E)} Дж`;
+            this.gore.slowmo(0.3, 0.55);
+            this.trauma = Math.min(1, this.trauma + 0.34);
+            audio.impact('bone', 1, 1);
+          }
+        } else if (limbName && cutPower > 0.5) {
+          const obj = this.gore.sever(n, part, dir, E01);
+          if (obj) {
+            severed = true;
+            txt = `ОТРУБИЛ ${limbName} · ${Math.round(E)} Дж`;
+            this.gore.slowmo(0.5, 0.3);
+            this.trauma = Math.min(1, this.trauma + 0.16);
+          }
+        } else if (part === 'torso' && cutPower > 0.84) {
+          // Разрубание пополам: мгновенная смерть и максимум мяса
+          this.gore.explode(n, dir, 1);
+          n.hp = 0;
+          severed = true;
+          txt = `РАЗРУБИЛ ПОПОЛАМ · ${Math.round(E)} Дж`;
+          this.gore.slowmo(0.28, 0.7);
+          this.trauma = Math.min(1, this.trauma + 0.45);
         }
-        if (part === 'head' && depth > 0.3) this.trauma = Math.min(1, this.trauma + 0.2);
+        if (part === 'head' && depth > 0.3) this.trauma = Math.min(1, this.trauma + 0.18);
         if (n.hp <= 0 && wasAlive) {
           n.kill(dirH);
-          if (n.kind === 'zombie') { this.kills++; this.killsZombie++; this.addXp(12); }
-          else { this.civiliansKilled++; this.killsHuman++; this.heat = Math.min(1, this.heat + 0.25); this.police.crime(1.6); txt += ' · ГРАЖДАНСКИЙ УБИТ'; }
-          if (!severed) txt += n.kind === 'zombie' ? ' · УБИТ' : '';
+          this.registerKill(n);
+          if (!severed && n.kind === 'zombie') txt += ' · УБИТ';
         }
         this.setLog(txt);
         if (!severed && !human) {
@@ -1519,11 +1632,13 @@ export class Game {
       if (p.kind === 'gasoline' && !this.vehicle) continue;
       this.items.take(p);
       switch (p.kind) {
-        case 'medkit':
-          this.hp = Math.min(100, this.hp + 40);
-          this.setLog('Аптечка · +40 здоровья');
+        case 'medkit': {
+          const heal = this.perks.has('medic') ? 80 : 40;
+          this.hp = Math.min(100, this.hp + heal);
+          this.setLog(`Аптечка · +${heal} здоровья`);
           audio.magClick();
           break;
+        }
         case 'ammo':
           this.pistol.reserve += 30;
           this.shotgun.reserve += 4;
@@ -1567,16 +1682,142 @@ export class Game {
     }
   }
 
+  /** Бросок бутылки/гранаты. */
+  throwProjectile() {
+    const kind = this.throwKind;
+    const left = kind === 'molotov' ? this.molotovs : this.grenades;
+    if (left <= 0) { this.setLog(kind === 'molotov' ? 'Бутылки закончились' : 'Гранаты закончились'); return; }
+    if (kind === 'molotov') this.molotovs--; else this.grenades--;
+    const dir = this.camera.getWorldDirection(new THREE.Vector3());
+    const geo = kind === 'molotov'
+      ? new THREE.CylinderGeometry(0.045, 0.055, 0.26, 7)
+      : new THREE.SphereGeometry(0.09, 8, 6);
+    const mat = kind === 'molotov'
+      ? new THREE.MeshStandardMaterial({ color: 0x2f5c3a, roughness: 0.25, metalness: 0.1, emissive: 0x233f2a })
+      : new THREE.MeshStandardMaterial({ color: 0x37413a, roughness: 0.6, metalness: 0.5 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true;
+    const pos = this.camera.position.clone().addScaledVector(dir, 0.6);
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    this.projectiles.push({
+      mesh, pos, kind, fuse: kind === 'grenade' ? 2.6 : 0,
+      vel: dir.clone().multiplyScalar(16).add(new THREE.Vector3(0, 4.4, 0)).add(this.vel.clone().multiplyScalar(0.5)),
+    });
+    audio.whoosh(0.6);
+    this.setLog(kind === 'molotov' ? 'Бутылка брошена' : 'Граната брошена');
+  }
+
+  cycleThrowable() {
+    this.throwKind = this.throwKind === 'molotov' ? 'grenade' : 'molotov';
+    this.setLog(this.throwKind === 'molotov' ? 'В руке: бутылка с зажигательной смесью' : 'В руке: граната');
+  }
+
+  private updateProjectiles(dt: number) {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i];
+      p.fuse -= dt;
+      p.vel.y -= 22 * dt;
+      p.pos.addScaledVector(p.vel, dt);
+      p.mesh.position.copy(p.pos);
+      if (p.kind === 'grenade') { p.mesh.rotation.x += dt * 6; p.mesh.rotation.z += dt * 4; }
+      else p.mesh.rotation.x += dt * 2;
+      const ground = this.city.surfaceAt(p.pos.x, p.pos.z);
+      const hitGround = p.pos.y <= ground + 0.08;
+      if (hitGround) {
+        if (p.kind === 'molotov') {
+          this.emergencies.ignite(p.pos.clone().setY(ground + 0.1), undefined, 1.25);
+          this.particles.sparkBurst(p.pos, new THREE.Vector3(0, 1, 0), 1);
+          this.atmosphere.flashBurst(0.25);
+          for (const n of this.npcs) {
+            if (n.alive && n.position().distanceTo(p.pos) < 3.4) {
+              n.applyHit('torso', 70, new THREE.Vector3(), 0.6);
+              if (n.hp <= 0) { n.kill(new THREE.Vector3(0, 0, 1)); this.registerKill(n); }
+            }
+          }
+          this.removeProjectile(i);
+          continue;
+        }
+        p.vel.y = Math.abs(p.vel.y) * 0.32;
+        p.vel.x *= 0.6; p.vel.z *= 0.6;
+        p.pos.y = ground + 0.09;
+      }
+      if (p.kind === 'grenade' && (p.fuse <= 0 || Math.hypot(p.vel.x, p.vel.z) < 0.4 && hitGround && p.fuse < 2.2)) {
+        this.bigExplosion(p.pos.clone(), 9, 1.1);
+        this.removeProjectile(i);
+      }
+    }
+  }
+
+  private removeProjectile(i: number) {
+    const p = this.projectiles[i];
+    this.scene.remove(p.mesh);
+    p.mesh.geometry.dispose();
+    (p.mesh.material as THREE.Material).dispose();
+    this.projectiles.splice(i, 1);
+  }
+
+  /** Убийство: счётчики, комбо, множитель опыта. */
+  private registerKill(n: Npc) {
+    const mult = this.gore.registerKill();
+    this.kills++;
+    if (n.kind === 'zombie') {
+      this.killsZombie++;
+      this.addXp(Math.round(12 * mult));
+    } else {
+      this.civiliansKilled++;
+      this.killsHuman++;
+      this.heat = Math.min(1, this.heat + 0.25);
+      this.police.crime(1.6);
+      this.addXp(Math.round(5 * mult));
+    }
+    const combo = this.gore.combo;
+    if (combo >= 2) {
+      this.setLog(`КОМБО ×${combo} · опыт ×${mult.toFixed(2)}`);
+      if (combo === 3 || combo === 5 || combo === 8) {
+        this.economy.add(combo * 25, 'Комбо');
+        this.notify(`Комбо ×${combo}`, `+$${combo * 25} за серию`);
+      }
+    }
+  }
+
   addXp(n: number) {
-    this.xp += n;
-    const need = 60 + this.level * 40;
-    if (this.xp >= need) {
+    const gain = Math.round(n * (this.perks.has('veteran') ? 1.15 : 1));
+    this.xp += gain;
+    let need = 60 + this.level * 40;
+    while (this.xp >= need) {
       this.xp -= need;
       this.level++;
+      need = 60 + this.level * 40;
       this.axe.sharpness = Math.min(1, this.axe.sharpness + 0.15);
       this.hp = Math.min(100, this.hp + 15);
-      this.setLog(`УРОВЕНЬ ${this.level} · +15 HP, лезвие острее`);
+      const perk = PERKS.find(p => p.level === this.level);
+      if (perk && !this.perks.has(perk.id)) {
+        this.perks.add(perk.id);
+        this.notify(`Навык: ${perk.name}`, perk.desc);
+        this.setLog(`УРОВЕНЬ ${this.level} · ${perk.name}`);
+      } else {
+        this.setLog(`УРОВЕНЬ ${this.level} · +15 HP, лезвие острее`);
+      }
     }
+  }
+
+
+  /** Проходной удар по второй и третьей цели в дуге замаха. */
+  private cleaveThrough(c: { npc: Npc; sample: BladeSample; point: THREE.Vector3; cap: Capsule }, E: number) {
+    const n = c.npc;
+    const part = c.cap.part;
+    const dir = this.tmp.subVectors(c.sample.pos, c.sample.prev).normalize();
+    const E01 = clamp(E / 300, 0, 1);
+    const depth = clamp((E * MATERIALS.flesh.penetration * (0.3 + 0.7 * this.axe.sharpness) * this.axe.bladeFactor()) / c.cap.resistance, 0, 1);
+    if (depth <= 0.02) return;
+    n.addWound(part, c.point, 0.02 + 0.04 * depth);
+    this.gore.hit(c.point, dir, E01, depth, false);
+    n.applyHit(part, this.npcDamage(part, depth) * 0.85, dir.clone().multiplyScalar(0.8 + 1.8 * E01), 0.35);
+    audio.impact(part === 'head' ? 'bone' : 'flesh', E01, depth);
+    const limb = part === 'armL' || part === 'armR' || part === 'foreL' || part === 'foreR' || part === 'thighL' || part === 'thighR' || part === 'shinL' || part === 'shinR';
+    if ((limb && depth > 0.66) || (part === 'head' && depth > 0.7)) this.gore.sever(n, part, dir, E01);
+    if (n.hp <= 0 && n.alive) { n.kill(dir); this.registerKill(n); }
   }
 
   private npcDamage(part: PartName, depth: number) {
@@ -1586,14 +1827,6 @@ export class Game {
       case 'armL': case 'armR': case 'foreL': case 'foreR': return 5 + 40 * depth;
       default: return 7 + 55 * depth;
     }
-  }
-
-  private spawnDebris(obj: THREE.Object3D, dir: THREE.Vector3, E01: number, groundY: number) {
-    this.scene.attach(obj);
-    const vel = dir.clone().multiplyScalar(2 + 5 * E01);
-    vel.y += 1.5 + 2 * E01;
-    this.physics.fragment(obj, vel, new THREE.Vector3((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 9), groundY);
-    this.particles.bloodBurst(obj.position, dir, E01, 30);
   }
 
   private doYank(strength: number) {
@@ -1606,7 +1839,7 @@ export class Game {
       const pull = d.clone();
       n.applyHit(n.lastHitPart ?? 'torso', 5 * strength, d.multiplyScalar(1.6 * strength), 0.45);
       this.particles.bloodBurst(this.axe.headWorld(this.tmp2), pull, 0.3, 8);
-      if (n.hp <= 0) { n.kill(pull.negate()); this.kills++; if (n.kind === 'zombie') this.killsZombie++; else this.killsHuman++; }
+      if (n.hp <= 0) { n.kill(pull.negate()); this.registerKill(n); }
     }
     const freed = this.axe.yank(strength);
     if (freed) {
@@ -1631,7 +1864,7 @@ export class Game {
   }
 
   // ================= пули =================
-  private updateProjectiles(dt: number) {
+  private updateBullets(dt: number) {
     this.updateBulletList(this.pistol.bullets, dt);
     this.updateBulletList(this.shotgun.pellets as unknown as { pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; traveled: number }[], dt);
   }
@@ -1791,8 +2024,8 @@ export class Game {
       npc.applyHit(part, damage, new THREE.Vector3(), 0.2);
       if (npc.hp <= 0) {
         npc.kill(new THREE.Vector3(0, 0, 1));
-        if (npc.kind === 'zombie') { this.kills++; this.killsZombie++; this.addXp(14); }
-        else { this.civiliansKilled++; this.killsHuman++; this.heat = Math.min(1, this.heat + 0.3); this.police.crime(1.8); }
+        this.registerKill(npc);
+        if (npc.kind !== 'zombie') this.police.crime(0.6);
         this.setLog(npc.kind === 'zombie' ? (part === 'head' ? 'ВЫСТРЕЛ В ГОЛОВУ · УБИТ' : 'ЗОМБИ УБИТ') : 'ГРАЖДАНСКИЙ УБИТ');
       } else this.setLog(part === 'head' ? 'попадание в голову' : `попадание · ${part}`);
       this.onEvent?.({ type: 'splash', amount: 0.6 });
@@ -1885,6 +2118,69 @@ export class Game {
     if (distance(safe, p) > 11 && !this.city.blockedAt(safe.x, safe.z, .4)) make(safe.x, safe.z);
   }
 
+  /** Живность, катера, кровь, следы шин, молнии и побочные занятия. */
+  private updateAmbientLayers(dt: number) {
+    const night = this.dayNight.night;
+    this.wildlife.update(dt, this.camera, night, this.pos);
+    this.ambient.update(dt, night, this.wet, this.weather.intensity * 0.5 + 0.3);
+    this.vfx.update(dt, night);
+    this.atmosphere.update(dt, {
+      night,
+      sunDir: this.dayNight.sunDir,
+      sunColor: this.dayNight.sunColor,
+      camera: this.camera,
+      wet: this.wet,
+    });
+
+    // гроза: молнии бьют в город
+    if (this.weather.intensity > 0.45 && night > 0.2) {
+      this.lightningTimer -= dt;
+      if (this.lightningTimer <= 0) {
+        this.lightningTimer = 12 + Math.random() * 26;
+        const a = Math.random() * Math.PI * 2;
+        const r = 60 + Math.random() * 260;
+        const x = this.pos.x + Math.cos(a) * r;
+        const z = this.pos.z + Math.sin(a) * r;
+        this.atmosphere.strike(x, 220, z, r);
+        this.trauma = Math.min(1, this.trauma + 0.16);
+      }
+    }
+
+    this.updateProjectiles(dt);
+
+    // ближайший интерактив (банкомат / магазин / гонка)
+    this.interactTarget = this.vehicle ? null : this.activities.nearestInteract(this.pos, 2.8);
+
+    // побочные занятия
+    const results = this.activities.update(dt, {
+      pos: this.pos, inCar: !!this.vehicle, speed: this.vehicle ? Math.abs(this.vehicle.vLong) * 3.6 : 0, night,
+    });
+    for (const r of results) {
+      if (r.money) this.economy.add(r.money, 'Занятие');
+      if (r.xp) this.addXp(Math.round(r.xp * this.gore.comboMultiplier));
+      if (r.wanted) this.police.crime(r.wanted);
+      if (r.message) { this.setLog(r.message); this.notify('Занятие', r.message); }
+    }
+
+    // кровь на асфальте под телом + следы шин
+    if (this.vehicle) {
+      const speed = Math.abs(this.vehicle.vLong);
+      const drift = Math.abs(this.vehicle.steer) * speed;
+      if (this.handbrake && speed > 4) {
+        for (const sx of [-1, 1]) {
+          this.tmp.set(sx * 0.86, 0, -1.5).applyAxisAngle(_up, this.vehicle.yaw);
+          this.vfx.skid(this.tmp.add(this.vehicle.pos), this.vehicle.yaw, this.city.surfaceAt(this.vehicle.pos.x, this.vehicle.pos.z), Math.min(1, speed / 18));
+        }
+      }
+      if (this.vehicle.hp < 55) {
+        this.vfx.damageSmoke(this.vehicle.pos.clone().setY(1.1), 1 - this.vehicle.hp / 55, this.vehicle.fire > 0);
+      }
+      if (drift > 14 && Math.random() < dt * 6) {
+        this.vfx.puffs(this.vehicle.pos.clone().setY(0.3), 1, false);
+      }
+    }
+  }
+
   private updateNpcs(dt: number) {
     const camP = this.camera.position;
     for (let i = this.npcs.length - 1; i >= 0; i--) {
@@ -1929,7 +2225,7 @@ export class Game {
 
   private npcAttack(n: Npc) {
     if (this.gameOver || this.vehicle) return;
-    const dmg = n.crawler ? 8 : 13;
+    const dmg = (n.crawler ? 8 : 13) * (this.perks.has('tough') ? 0.8 : 1);
     this.hp = Math.max(0, this.hp - dmg);
     audio.zombieBite();
     audio.playerHurt();
@@ -1961,7 +2257,8 @@ export class Game {
       const dt = Math.min(0.05, Math.max(0.0001, raw));
       this.lastT = t;
       if (this.paused && !this.redraw) return;
-      if (!this.paused) this.update(dt);
+      this.gore.update(dt);
+      if (!this.paused) this.update(dt * this.gore.timeScale);
       this.redraw = false;
       // адаптивное разрешение: держим 55–60 FPS даже на слабых Android
       if (!this.paused) {
@@ -2088,7 +2385,7 @@ export class Game {
     // Sprinting costs 26 stamina per second; the weapon's passive regeneration is overridden while running.
     const staminaBeforeAxe = this.axe.stamina;
     this.axe.update(dt, this.camAngVel, this.vel.length(), this.bobPhase);
-    if (this.sprintActive) this.axe.stamina = Math.max(0, staminaBeforeAxe - 26 * dt);
+    if (this.sprintActive) this.axe.stamina = Math.max(0, staminaBeforeAxe - (this.perks.has('runner') ? 19.5 : 26) * dt);
     this.contactCooldown -= dt;
     if (!inVehicle && this.weapon === 'axe' && (this.axe.state === 'strike' || (this.axe.state === 'recover' && Math.abs(this.axe.omega) > 6)) && this.contactCooldown <= 0) {
       this.checkContacts(dt);
@@ -2109,6 +2406,7 @@ export class Game {
       const r = this.pistol.tryFire(this.weaponView, spread);
       if (r.ok) {
         audio.gunshot(1);
+        this.wildlife?.scare(this.pos, 45);
         audio.shellDrop();
         this.kickVelP -= 5.5;
         this.kickYaw += (Math.random() - 0.5) * 1.6;
@@ -2128,6 +2426,7 @@ export class Game {
       const spread = (this.shotgun.ads > 0.5 ? 0.035 : 0.075) * (this.stance === 'stand' ? 1 : this.stance === 'crouch' ? 0.78 : 0.61);
       if (this.shotgun.tryFire(this.weaponView, spread)) {
         audio.gunshot(1.4);
+        this.wildlife?.scare(this.pos, 60);
         audio.shellDrop();
         this.kickVelP -= 9;
         this.kickYaw += (Math.random() - 0.5) * 3;
@@ -2142,7 +2441,7 @@ export class Game {
         this.reload();
       }
     }
-    this.updateProjectiles(dt);
+    this.updateBullets(dt);
 
     // предметы
     this.items.update(dt);
@@ -2293,6 +2592,8 @@ export class Game {
       const burning = this.traffic.cars.filter(c => c.fire > 0 && c.pos.distanceToSquared(this.pos) < 1500);
       if (burning.length) { this.crackleTimer = 0.3 + Math.random() * 0.7; audio.fireCrackle(); }
     }
+    this.updateAmbientLayers(dt);
+
     this.physics.step(dt);
     this.particles.update(dt);
 
@@ -2304,6 +2605,21 @@ export class Game {
     if (this.hp < 35 && !this.gameOver) {
       this.heartT -= dt;
       if (this.heartT <= 0) { this.heartT = lerp(0.6, 1.1, this.hp / 35); audio.heartbeat(); }
+    }
+
+    // постобработка: единые uniform-ы кадра
+    if (this.grade && this.grade.enabled) {
+      const u = this.grade.uniforms;
+      u.uTime.value = this.time;
+      u.uNight.value = this.dayNight.night;
+      const speed01 = this.vehicle ? clamp(Math.abs(this.vehicle.vLong) / 34, 0, 1) : (this.sprintActive ? 0.18 : 0);
+      u.uRadial.value = speed01 * speed01 * 0.9;
+      u.uHurt.value = clamp(1 - this.hp / 55, 0, 1) * 0.55 + this.gore.screenBlood * 0.25;
+      u.uBlood.value = this.gore.screenBlood;
+      u.uKillCam.value = this.gore.killCam;
+      u.uHeat.value = this.atmosphere.heat * (1 - this.dayNight.night);
+      u.uFlash.value = this.atmosphere.flash;
+      u.uAberration.value = 0.0016 + this.gore.killCam * 0.003 + speed01 * 0.004;
     }
 
     // HUD
@@ -2371,6 +2687,20 @@ export class Game {
         robbed: this.economy.robbed,
         qualityTier: this.budget.label,
         fpsScale: Math.round(this.adaptive.value * 100),
+        combo: this.gore.combo,
+        comboTimer: this.gore.comboTimer,
+        bloodScreen: this.gore.screenBlood,
+        killCam: this.gore.killCam,
+        packages: this.activities.collected,
+        packagesTotal: this.activities.total,
+        raceActive: this.activities.raceActive,
+        raceGate: this.activities.raceActive ? `${this.activities.raceIndex}/${this.activities.gatesCount}` : '',
+        raceTime: this.activities.raceTimer,
+        interact: this.interactTarget ? (this.interactTarget.kind === 'atm' ? 'Банкомат' : this.interactTarget.kind === 'store' ? 'Магазин' : 'Уличная гонка') : null,
+        skirt: this.stance,
+        molotovs: this.molotovs,
+        grenades: this.grenades,
+        throwKind: this.throwKind,
       });
     }
   }
@@ -2429,6 +2759,8 @@ export class Game {
     this.police.wanted = this.police.stars = this.police.heat = 0;
     this.air.reset();
     this.quests.reset();
+    this.gore.reset();
+    this.activities.reset();
     this.heliDownCounted = this.tankDownCounted = false;
     this.heliKills = this.tankKills = 0;
     this.killsZombie = this.killsHuman = this.killsOfficer = 0;

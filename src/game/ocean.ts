@@ -332,6 +332,9 @@ export interface OceanContext {
 }
 
 export class Ocean {
+  /** Аналитическая линия берега — та же формула, что и в шейдере. */
+  shoreAt(z: number) { return shoreX(z); }
+
   water: THREE.Mesh;
   backdrop: THREE.Mesh;
   sand: THREE.Mesh;
