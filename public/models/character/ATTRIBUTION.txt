@@ -1,0 +1,13 @@
+Character face asset
+
+Infinite, 3D Head Scan by Lee Perry-Smith / Infinite-Realities.
+Source: https://threejs.org/examples/models/gltf/LeePerrySmith/
+Original source: https://www.triplegangers.com/
+License: Creative Commons Attribution 3.0 Unported
+https://creativecommons.org/licenses/by/3.0/
+
+Files: head.glb, skin.jpg, skin-normal.jpg.
+Adaptations: the bust is cropped to a head at runtime, resized and attached to
+an articulated character. Zombie skin is desaturated at runtime. Additional
+eyes, hair, clothing and accessories are original procedural game geometry.
+The original license is preserved in LICENSE.txt.
