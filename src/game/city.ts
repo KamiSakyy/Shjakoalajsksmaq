@@ -622,7 +622,7 @@ export class City {
   // ---------------- коллизии ----------------
   // круг игрока/NPC против зданий (AABB) и мелких объектов (круги)
   private _cells: string[] = [];
-  collide(p: THREE.Vector3, r: number) {
+  collide(p: THREE.Vector3, r: number, feetY = -Infinity) {
     const cells = this.nearCells(p.x, p.z, this._cells);
     for (const k of cells) {
       const arr = this.grid.get(k);
@@ -640,6 +640,8 @@ export class City {
       }
     }
     for (const b of this.boxesNear(p.x, p.z)) {
+      // если мы стоим на этой коробке (крыша, парапет) — она не стена
+      if (b.max.y <= feetY + 0.28) continue;
       const cx = Math.max(b.min.x, Math.min(p.x, b.max.x));
       const cz = Math.max(b.min.z, Math.min(p.z, b.max.z));
       const dx = p.x - cx, dz = p.z - cz;

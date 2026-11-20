@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { ROAD_W } from './city-plan';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
-export type CarKind = 'sedan' | 'sport' | 'van' | 'taxi' | 'police' | 'fire' | 'ambulance';
+export type CarKind = 'sedan' | 'sport' | 'van' | 'taxi' | 'police' | 'fire' | 'ambulance' | 'moto';
 
 const PALETTE = [0xb03a2e, 0x2c4f8a, 0xd8d3c6, 0x22262b, 0x6b6f75, 0x2f6b4f, 0xc9a227, 0x7a3b8f, 0x3fa9c9, 0x8f3f2e];
 
@@ -28,6 +28,7 @@ export const SPECS: Record<CarKind, CarSpec> = {
   taxi: { mass: 1450, power: 9.0, topSpeed: 40, grip: 9.0, brake: 16, wheelbase: 2.75, halfWidth: 0.94, halfLength: 2.25, rideHeight: 0.32, bodyH: 0.66, cabH: 0.5 },
   police: { mass: 1500, power: 13.0, topSpeed: 50, grip: 10.5, brake: 18, wheelbase: 2.8, halfWidth: 0.95, halfLength: 2.3, rideHeight: 0.3, bodyH: 0.64, cabH: 0.48 },
   fire: { mass: 8200, power: 11.8, topSpeed: 28, grip: 6.2, brake: 8, wheelbase: 3.9, halfWidth: 1.16, halfLength: 3.35, rideHeight: 0.38, bodyH: 1.35, cabH: 0.94 },
+  moto: { mass: 210, power: 16.5, topSpeed: 63, grip: 12.8, brake: 23, wheelbase: 1.42, halfWidth: 0.34, halfLength: 1.08, rideHeight: 0.14, bodyH: 0.52, cabH: 0.02 },
   ambulance: { mass: 2800, power: 12.0, topSpeed: 38, grip: 8.4, brake: 15, wheelbase: 3.1, halfWidth: 1.03, halfLength: 2.7, rideHeight: 0.32, bodyH: 1.38, cabH: 0.58 },
 };
 
@@ -175,6 +176,47 @@ export class Traffic {
     g.computeVertexNormals(); this.bodyGeoCache.set(key, g); return g;
   }
 
+  /** Мотоцикл: бак, седло, двигатель, вилка, руль, выхлоп. */
+  private buildMoto(g: THREE.Group, paint: number, trim: THREE.Material) {
+    const glossy = new THREE.MeshPhysicalMaterial({ color: paint, roughness: 0.24, metalness: 0.45, clearcoat: 0.95, clearcoatRoughness: 0.12, envMapIntensity: 1.2 });
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m;
+    };
+    // бак и седло
+    add(new RoundedBoxGeometry(0.34, 0.3, 0.68, 3, 0.13), glossy, 0, 0.72, 0.16).rotation.x = -0.08;
+    add(new RoundedBoxGeometry(0.3, 0.13, 0.58, 3, 0.06), new THREE.MeshStandardMaterial({ color: 0x17181a, roughness: 0.86 }), 0, 0.79, -0.36);
+    add(new RoundedBoxGeometry(0.26, 0.2, 0.34, 3, 0.08), glossy, 0, 0.78, -0.72);
+    // двигатель и рама
+    add(new RoundedBoxGeometry(0.3, 0.34, 0.44, 2, 0.05), trim, 0, 0.47, 0.02);
+    for (const sx of [-1, 1]) {
+      const rail = add(new THREE.CylinderGeometry(0.026, 0.026, 0.86, 8), trim, sx * 0.11, 0.5, -0.12);
+      rail.rotation.x = Math.PI / 2;
+    }
+    // вилка и руль
+    for (const sx of [-1, 1]) {
+      const fork = add(new THREE.CylinderGeometry(0.032, 0.032, 0.72, 8), new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.22, metalness: 0.9 }), sx * 0.09, 0.52, 0.62);
+      fork.rotation.x = 0.34;
+    }
+    const bar = add(new THREE.CylinderGeometry(0.022, 0.022, 0.62, 8), trim, 0, 0.96, 0.44);
+    bar.rotation.z = Math.PI / 2;
+    for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.03, 0.03, 0.11, 8), new THREE.MeshStandardMaterial({ color: 0x121214, roughness: 0.9 }), sx * 0.28, 0.96, 0.44).rotation.z = Math.PI / 2;
+    // выхлоп и подножки
+    const pipe = add(new THREE.CylinderGeometry(0.048, 0.058, 0.92, 10), new THREE.MeshStandardMaterial({ color: 0x8d9298, roughness: 0.28, metalness: 0.95 }), 0.16, 0.34, -0.42);
+    pipe.rotation.x = Math.PI / 2 - 0.06;
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.1, 0.03, 0.05), trim, sx * 0.2, 0.36, -0.06);
+    // крылья
+    add(new RoundedBoxGeometry(0.26, 0.05, 0.42, 2, 0.02), glossy, 0, 0.72, 0.78);
+    add(new RoundedBoxGeometry(0.24, 0.05, 0.34, 2, 0.02), glossy, 0, 0.86, -0.94);
+    // зеркала
+    for (const sx of [-1, 1]) {
+      const stalk = add(new THREE.CylinderGeometry(0.012, 0.012, 0.14, 6), trim, sx * 0.2, 1.03, 0.42);
+      stalk.rotation.z = sx * 0.5;
+      add(new RoundedBoxGeometry(0.1, 0.07, 0.03, 2, 0.012), new THREE.MeshStandardMaterial({ color: 0x9fb6c9, roughness: 0.12, metalness: 0.8 }), sx * 0.25, 1.1, 0.42);
+    }
+    // задний фонарь
+    add(new THREE.BoxGeometry(0.16, 0.055, 0.04), new THREE.MeshStandardMaterial({ color: 0x8a1111, emissive: 0xff1a00, emissiveIntensity: 0.9, roughness: 0.3 }), 0, 0.84, -0.9);
+  }
+
   spawn(kind: CarKind, x: number, z: number, yaw: number, ai = true, paint?: number): Car {
     const s = SPECS[kind];
     const root = new THREE.Group();
@@ -187,16 +229,21 @@ export class Traffic {
       mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.33, metalness: 0.35, clearcoat: 0.82, clearcoatRoughness: 0.24, envMapIntensity: 1.05 });
       this.matCache.set(matKey, mat);
     }
+    const isMoto = kind === 'moto';
     const body = new THREE.Mesh(this.bodyGeo(kind), mat);
     body.castShadow = true;
+    body.visible = !isMoto;
     bodyGroup.add(body);
     const glass = new THREE.Mesh(this.glassGeo(kind), this.glassMat);
+    glass.visible = !isMoto;
     bodyGroup.add(glass);
     const detail = (w: number, h: number, d: number, x: number, y: number, z: number) => {
+      if (isMoto) return;
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), this.trimMat);
       m.position.set(x, y, z);
       bodyGroup.add(m);
     };
+    if (isMoto) this.buildMoto(bodyGroup, color, this.trimMat);
     detail(s.halfWidth * 1.58, 0.22, 0.065, 0, s.rideHeight + 0.33, s.halfLength);
     detail(s.halfWidth * 1.61, 0.16, 0.043, 0, s.rideHeight + 0.34, -s.halfLength);
     for (const side of [-1, 1]) {
@@ -205,14 +252,16 @@ export class Traffic {
       detail(0.23, 0.088, 0.16, side * s.halfWidth, s.rideHeight + s.bodyH + 0.14, s.halfLength * 0.37);
     }
     const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.164), this.plateMat);
-    plate.rotation.y = Math.PI; plate.position.set(0, s.rideHeight + 0.34, -s.halfLength - 0.028);
+    plate.rotation.y = Math.PI;
+    plate.position.set(0, s.rideHeight + (isMoto ? 0.44 : 0.34), -s.halfLength - 0.028);
+    plate.scale.setScalar(isMoto ? 0.62 : 1);
     bodyGroup.add(plate);
     if (kind === 'taxi') detail(0.42, 0.13, 0.24, 0, s.rideHeight + s.bodyH + s.cabH + 0.045, -0.08);
     const contact = new THREE.Mesh(new THREE.PlaneGeometry(s.halfWidth * 3.05, s.halfLength * 2.72), new THREE.MeshBasicMaterial({ map: this.shadow, transparent: true, opacity: 0.87, depthWrite: false }));
     contact.rotateX(-Math.PI / 2); contact.position.y = 0.032; root.add(contact);
 
     // колёса
-    const wg = new THREE.CylinderGeometry(0.359, 0.359, 0.23, 20);
+    const wg = isMoto ? new THREE.CylinderGeometry(0.33, 0.33, 0.14, 18) : new THREE.CylinderGeometry(0.359, 0.359, 0.23, 20);
     wg.rotateZ(Math.PI / 2);
     const wm = new THREE.MeshStandardMaterial({ color: 0x101012, roughness: 0.92 });
     const rims = new THREE.MeshStandardMaterial({ color: 0x858b90, roughness: 0.27, metalness: 0.72 });
@@ -221,12 +270,15 @@ export class Traffic {
     const wheelHubs: THREE.Group[] = [];
     const wx = s.halfWidth - 0.012;
     const wz = s.wheelbase / 2;
-    for (const [px, pz, front] of [[-wx, wz, true], [wx, wz, true], [-wx, -wz, false], [wx, -wz, false]] as number[][]) {
+    const wheelSlots: [number, number, boolean][] = isMoto
+      ? [[0, wz * 1.06, true], [0, -wz * 1.02, false]]
+      : [[-wx, wz, true], [wx, wz, true], [-wx, -wz, false], [wx, -wz, false]];
+    for (const [px, pz, front] of wheelSlots) {
       const hub = new THREE.Group();
       const tire = new THREE.Mesh(wg, wm);
       tire.castShadow = true;
       hub.add(tire);
-      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.231, 0.231, 0.235, 16), this.trimMat);
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(isMoto ? 0.21 : 0.231, isMoto ? 0.21 : 0.231, isMoto ? 0.145 : 0.235, 16), this.trimMat);
       rim.rotation.z = Math.PI / 2;
       hub.add(rim);
       const side = Math.sign(px), accents: THREE.BufferGeometry[] = [];
@@ -242,7 +294,7 @@ export class Traffic {
       hub.add(new THREE.Mesh(mergeGeometries(accents)!, rims));
       accents.forEach(g => g.dispose());
       const steering = new THREE.Group();
-      steering.position.set(px, 0.36, pz);
+      steering.position.set(px, isMoto ? 0.33 : 0.36, pz);
       steering.add(hub); root.add(steering);
       wheels.push(hub); wheelHubs.push(steering);
       if (front) frontWheels.push(steering);
@@ -250,17 +302,19 @@ export class Traffic {
 
     // фары / стопы / поворотники
     const hl = new THREE.MeshStandardMaterial({ color: 0xfff6dd, emissive: new THREE.Color(0xfff0c0), emissiveIntensity: 0, roughness: 0.2 });
-    const headlights = new THREE.Mesh(mergeGeometries([
-      (() => { const g = new THREE.BoxGeometry(0.42, 0.16, 0.1); g.translate(-s.halfWidth * 0.62, s.rideHeight + 0.42, s.halfLength - 0.02); return g; })(),
-      (() => { const g = new THREE.BoxGeometry(0.42, 0.16, 0.1); g.translate(s.halfWidth * 0.62, s.rideHeight + 0.42, s.halfLength - 0.02); return g; })(),
-    ])!, hl);
+    const headlightBar = isMoto ? [0] : [-s.halfWidth * 0.62, s.halfWidth * 0.62];
+    const headlights = new THREE.Mesh(mergeGeometries(headlightBar.map((hx) => {
+      const g = new THREE.BoxGeometry(isMoto ? 0.2 : 0.42, isMoto ? 0.13 : 0.16, 0.1);
+      g.translate(hx, s.rideHeight + 0.42 + (isMoto ? 0.34 : 0), s.halfLength - 0.02);
+      return g;
+    }))!, hl);
     bodyGroup.add(headlights);
     const tl = new THREE.MeshStandardMaterial({ color: 0x8a1111, emissive: new THREE.Color(0xff1a00), emissiveIntensity: 0.35, roughness: 0.35 });
     const taillights = new THREE.Mesh(mergeGeometries([
       (() => { const g = new THREE.BoxGeometry(0.4, 0.14, 0.1); g.translate(-s.halfWidth * 0.64, s.rideHeight + 0.46, -s.halfLength + 0.02); return g; })(),
       (() => { const g = new THREE.BoxGeometry(0.4, 0.14, 0.1); g.translate(s.halfWidth * 0.64, s.rideHeight + 0.46, -s.halfLength + 0.02); return g; })(),
     ])!, tl);
-    bodyGroup.add(taillights);
+    if (!isMoto) bodyGroup.add(taillights);
     const indicators: THREE.Mesh[] = [];
     for (const side of [-1, 1]) {
       const g = new THREE.BoxGeometry(0.12, 0.066, 0.07);
@@ -395,7 +449,15 @@ export class Traffic {
     car.rollVel += (THREE.MathUtils.clamp(-lateral * 0.007, -0.13, 0.13) - car.roll) * dt * 58 - car.rollVel * dt * 8;
     car.pitchVel += (THREE.MathUtils.clamp(acceleration * 0.006, -0.1, 0.09) - car.pitch) * dt * 58 - car.pitchVel * dt * 8;
     car.roll += car.rollVel * dt; car.pitch += car.pitchVel * dt;
-    car.body.rotation.z = car.roll; car.body.rotation.x = car.pitch;
+    if (car.kind === 'moto') {
+      // мотоцикл наклоняется целиком, вместе с колёсами
+      car.root.rotation.order = 'YXZ';
+      car.root.rotation.z = THREE.MathUtils.clamp(car.roll * 3.4, -0.5, 0.5);
+      car.body.rotation.z = 0;
+      car.body.rotation.x = car.pitch;
+    } else {
+      car.body.rotation.z = car.roll; car.body.rotation.x = car.pitch;
+    }
     car.body.position.y = -0.006 + Math.sin(car.vel.length() * 0.35 + car.pos.x * 1.7 + car.pos.z) * Math.min(0.016, speed * 0.0012);
     for (const w of car.wheels) w.rotation.x = (w.rotation.x + car.vLong * dt / 0.36) % (2 * Math.PI);
     for (const w of car.frontWheels) w.rotation.y = steer;

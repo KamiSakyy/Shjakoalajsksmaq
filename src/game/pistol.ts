@@ -6,13 +6,7 @@ import type { Material } from './audio';
 // Реалистичный пистолет: полуавтомат, отдача, цикл затвора, магазин, перезарядка
 // ---------------------------------------------------------------------------
 
-export interface Bullet {
-  pos: THREE.Vector3;
-  vel: THREE.Vector3;
-  life: number;
-  dmg: number;
-  traveled: number;
-}
+export interface Bullet { pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; traveled: number; pierce?: number }
 
 export interface FireResult {
   ok: boolean;
@@ -50,6 +44,12 @@ export class Pistol {
   lastFireTime = -10;
   casingT = 0;
   muzzleT = 0;
+  /** Тюнинг из магазина телефона. */
+  suppressed = false;
+  damageMul = 1;
+  pierceBonus = 0;
+  spreadMul = 1;
+  recoilMul = 1;
   private time = 0;
 
   bullets: Bullet[] = [];
@@ -138,7 +138,7 @@ export class Pistol {
     this.lastFireTime = this.time;
 
     // разброс: базовый + накопленный + движение
-    const spread = spreadBase + this.aimSpread;
+    const spread = (spreadBase + this.aimSpread) * this.spreadMul;
     const dir = camera.getWorldDirection(_v).clone();
     const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
     const up = new THREE.Vector3().crossVectors(right, dir).normalize();
@@ -149,15 +149,16 @@ export class Pistol {
     // скорость пули ~380 м/с с небольшой гравитацией
     this.bullets.push({
       pos: camera.getWorldPosition(new THREE.Vector3()).addScaledVector(dir, 0.6),
-      vel: dir.multiplyScalar(340),
+      vel: dir.multiplyScalar(360),
       life: 0,
-      dmg: 42,
+      dmg: 46 * this.damageMul,
       traveled: 0,
+      pierce: 1 + this.pierceBonus,
     });
-    this.aimSpread = Math.min(0.09, this.aimSpread + 0.012);
+    this.aimSpread = Math.min(0.09, this.aimSpread + 0.012 * this.spreadMul);
 
     // отдача: оружие уходит назад и вверх, камера дёргается вверх
-    this.recoilVel += 5.2;
+    this.recoilVel += 5.2 * this.recoilMul;
     this.recoilYawVel += (Math.random() - 0.5) * 1.6;
     this.muzzleT = 0.05;
     return { ok: true };

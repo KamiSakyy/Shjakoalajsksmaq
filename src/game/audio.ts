@@ -70,6 +70,15 @@ export class AudioSys {
     this.startWind();
   }
 
+  /** Размещение источника по панораме: -1 слева, 1 справа. */
+  private place(node: AudioNode, pan: number, wet: number) {
+    if (!this.ctx || Math.abs(pan) < 0.03) { this.out(node, wet); return; }
+    const p = this.ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    node.connect(p);
+    this.out(p, wet);
+  }
+
   private out(node: AudioNode, wet = 0.5) {
     node.connect(this.dry);
     if (wet > 0) {
@@ -285,10 +294,39 @@ export class AudioSys {
     this.tone({ freq: 55, freqEnd: 30, dur: 0.14, gain: 0.4, wet: 0, delay: 0.16 });
   }
 
-  footstep() {
+  footstep(surface: 'concrete' | 'asphalt' | 'grass' | 'sand' | 'water' | 'metal' | 'wood' = 'concrete') {
     if (!this.ctx) return;
-    this.noise({ dur: 0.09, freq: 300 + Math.random() * 150, freqEnd: 120, type: 'lowpass', gain: 0.22, attack: 0.004, wet: 0.2 });
-    this.noise({ dur: 0.05, freq: 1800, q: 1, gain: 0.05, wet: 0.1 });
+    const v = 0.9 + Math.random() * 0.2;
+    const body = { dur: 0.09, freq: 300 + Math.random() * 150, freqEnd: 120, type: 'lowpass' as BiquadFilterType, gain: 0.2 * v, attack: 0.004, wet: 0.2 };
+    switch (surface) {
+      case 'grass':
+        this.noise({ ...body, gain: 0.13, freq: 900, freqEnd: 500, type: 'bandpass', q: 0.8 });
+        this.noise({ dur: 0.06, freq: 3400, q: 0.6, gain: 0.05, wet: 0.1 });
+        break;
+      case 'sand':
+        this.noise({ ...body, freq: 1600, freqEnd: 900, gain: 0.09, type: 'bandpass', q: 0.5, wet: 0.1 });
+        break;
+      case 'water':
+        this.noise({ ...body, freq: 700, freqEnd: 2200, gain: 0.2, type: 'bandpass', q: 0.4, wet: 0.3 });
+        this.noise({ dur: 0.14, freq: 2400, freqEnd: 500, q: 0.7, gain: 0.08, delay: 0.02, wet: 0.3 });
+        break;
+      case 'metal':
+        this.noise({ ...body, freq: 1400, freqEnd: 700, gain: 0.16, q: 1.6 });
+        this.tone({ freq: 1500 + Math.random() * 500, freqEnd: 900, dur: 0.16, gain: 0.05, type: 'triangle', wet: 0.3 });
+        break;
+      case 'wood':
+        this.noise({ ...body, freq: 620, freqEnd: 220, gain: 0.2, q: 1.2 });
+        this.tone({ freq: 190, freqEnd: 120, dur: 0.09, gain: 0.07, type: 'triangle', wet: 0.15 });
+        break;
+      case 'asphalt':
+        this.noise({ ...body, gain: 0.19, freq: 380, freqEnd: 150 });
+        this.noise({ dur: 0.05, freq: 2600, q: 1.4, gain: 0.045, wet: 0.1 });
+        break;
+      default:
+        this.noise(body);
+        this.noise({ dur: 0.05, freq: 1800, q: 1, gain: 0.05, wet: 0.1 });
+        break;
+    }
   }
 
   sharpen() {
@@ -323,10 +361,13 @@ export class AudioSys {
   }
 
   // ---------------- пистолет ----------------
-  gunshot(power = 1) {
+  gunshot(power = 1, pan = 0, dist = 0) {
     if (!this.ctx) return;
     const ctx = this.ctx;
     const t0 = ctx.currentTime;
+    // дистанция: далёкий выстрел глуше и тише
+    const far = Math.max(0, Math.min(1, dist / 60));
+    power *= 1 - far * 0.55;
     // ударная волна — низкий «бум»
     const o = ctx.createOscillator();
     o.type = 'sine';
@@ -337,7 +378,7 @@ export class AudioSys {
     g.gain.exponentialRampToValueAtTime(0.9 * power, t0 + 0.002);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
     o.connect(g);
-    this.out(g, 0.55);
+    this.place(g, pan, 0.55);
     o.start(t0);
     o.stop(t0 + 0.25);
     // «крэк» — резкий шум
@@ -345,6 +386,43 @@ export class AudioSys {
     this.noise({ dur: 0.22, freq: 700, freqEnd: 180, q: 0.7, gain: 0.6 * power, attack: 0.001, wet: 0.8 });
     // металлический звон ствола
     this.tone({ freq: 2400, freqEnd: 1600, dur: 0.22, gain: 0.1 * power, type: 'sine', wet: 0.7 });
+    // хвост в застройке — отражения от домов
+    this.noise({ dur: 0.85, freq: 520, freqEnd: 150, type: 'lowpass', q: 0.6, gain: 0.16 * power, attack: 0.06, wet: 1, delay: 0.05 });
+    // механика: затвор отходит и возвращается
+    this.noise({ dur: 0.03, freq: 1800, freqEnd: 900, q: 5, gain: 0.12 * power, attack: 0.0008, wet: 0.1, delay: 0.028 });
+    this.noise({ dur: 0.025, freq: 2600, freqEnd: 1400, q: 6, gain: 0.08 * power, attack: 0.0008, wet: 0.1, delay: 0.062 });
+  }
+
+  /** Выстрел с глушителем: только щелчок и глухой хлопок. */
+  silenced() {
+    if (!this.ctx) return;
+    this.noise({ dur: 0.05, freq: 1400, freqEnd: 400, q: 2, gain: 0.16, attack: 0.0008, wet: 0.2 });
+    this.tone({ freq: 180, freqEnd: 70, dur: 0.1, gain: 0.22, type: 'sine', wet: 0.2 });
+    this.noise({ dur: 0.05, freq: 2400, q: 6, gain: 0.06, attack: 0.001, wet: 0.1, delay: 0.05 });
+  }
+
+  /** Пуля проходит рядом: сверхзвуковой щелчок и свист. */
+  whizz() {
+    if (!this.ctx) return;
+    this.noise({ dur: 0.09, freq: 5200, freqEnd: 1600, type: 'highpass', gain: 0.22, attack: 0.001, wet: 0.3 });
+    this.tone({ freq: 1900, freqEnd: 380, dur: 0.24, gain: 0.06, type: 'sine', wet: 0.4 });
+  }
+
+  /** Гильза падает на асфальт. */
+  casing() {
+    if (!this.ctx) return;
+    for (let i = 0; i < 2; i++) {
+      this.tone({ freq: 4200 + Math.random() * 1600, freqEnd: 2600, dur: 0.07, gain: 0.05, type: 'triangle', wet: 0.35, delay: 0.12 + i * 0.11 });
+    }
+  }
+
+  /** Разбитое стекло: звонкая россыпь осколков. */
+  glassBreak() {
+    if (!this.ctx) return;
+    this.noise({ dur: 0.32, freq: 4200, freqEnd: 1200, type: 'highpass', q: 0.8, gain: 0.3, attack: 0.001, wet: 0.6 });
+    for (let i = 0; i < 5; i++) {
+      this.tone({ freq: 3200 + Math.random() * 3400, freqEnd: 1800, dur: 0.16, gain: 0.05, type: 'triangle', wet: 0.6, delay: Math.random() * 0.3 });
+    }
   }
 
   dryFire() {

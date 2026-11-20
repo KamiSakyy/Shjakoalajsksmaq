@@ -20,6 +20,8 @@ export class Shotgun {
   shells = 6;
   maxShells = 6;
   reserve = 24;
+  damageMul = 1;
+  spreadMul = 1;
   reloading = false;
   reloadT = 0;
   cycling = 0;      // перезарядка затвора/помпы
@@ -94,12 +96,12 @@ export class Shotgun {
     const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
     const up = new THREE.Vector3().crossVectors(right, dir).normalize();
     const origin = camera.getWorldPosition(new THREE.Vector3()).addScaledVector(dir, 0.7);
-    const spread = spreadBase + this.aimSpread;
+    const spread = (spreadBase + this.aimSpread) * this.spreadMul;
     for (let i = 0; i < 8; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = Math.sqrt(Math.random()) * spread;
       const d = dir.clone().addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize();
-      this.pellets.push({ pos: origin.clone(), vel: d.multiplyScalar(300 + Math.random() * 40), life: 0, dmg: 15, traveled: 0 });
+      this.pellets.push({ pos: origin.clone(), vel: d.multiplyScalar(300 + Math.random() * 40), life: 0, dmg: 15 * this.damageMul, traveled: 0 });
     }
     this.aimSpread = Math.min(0.12, this.aimSpread + 0.02);
     this.recoilVel += 7.5;

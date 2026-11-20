@@ -48,12 +48,28 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
         </div>
       )}
       {hud.interact && !hud.inCar && <div className="hud-interact"><kbd>F</kbd>{hud.interact}</div>}
+      {!hud.inCar && (hud.parkour === 'climb' || hud.parkour === 'wallrun' || hud.parkour === 'vault' || hud.parkour === 'mantle' || hud.parkour === 'slide') && (
+        <div className={`hud-parkour ${hud.parkour}`}>
+          {hud.parkour === 'climb' ? 'ЛАЗАНИЕ · держи ПРОБЕЛ'
+            : hud.parkour === 'wallrun' ? 'БЕГ ПО СТЕНЕ'
+            : hud.parkour === 'vault' ? 'ВОЛЬТ'
+            : hud.parkour === 'mantle' ? 'ПОДТЯГИВАНИЕ'
+            : 'СКОЛЬЖЕНИЕ'}
+        </div>
+      )}
+      {!hud.inCar && hud.parkour === 'air' && hud.height > 2.2 && <div className="hud-height">{hud.height.toFixed(1)} м<br /><span>СПРАВА — ПЕРЕКАТ</span></div>}
       {hud.raceActive && <div className="hud-race"><b>ГОНКА</b><span>кольцо {hud.raceGate}</span><em>{hud.raceTime.toFixed(1)} с</em></div>}
       {!hud.inCar && <div className={`reticle ${hud.ads ? 'aiming' : ''}`} />}
+      {hud.hitMarker > 0.02 && (
+        <div className={`hit-marker ${hud.hitHead ? 'head' : ''}`} style={{ opacity: Math.min(1, hud.hitMarker * 1.4) }}>
+          <i /><i /><i /><i />
+        </div>
+      )}
       <div className="hud-vitals">
         {hud.sprinting && <div className="sprint-tag">БЕГ</div>}
         <Bar value={hud.hp} color="#bb7465" label="ЗДОРОВЬЕ" icon="+" />
         <Bar value={hud.stamina} color="#c6cbb1" label="СИЛЫ" icon="/" />
+        {hud.armor > 0.5 && <Bar value={(hud.armor / hud.armorMax) * 100} color="#6f9fd8" label="БРОНЯ" icon="▲" />}
         {hud.weapon === 'axe' && <Bar value={hud.sharpness * 100} color="#bea77d" label="ЛЕЗВИЕ" icon="|" />}
         <div className="hud-level">УРОВЕНЬ {hud.level}<span>{hud.kills} УСТРАНЕНО</span><span className="hud-packs">ПАКЕТЫ {hud.packages}/{hud.packagesTotal}</span></div>
         <button type="button" className="hud-cash pointer-events-auto" onClick={onPhone} title="Открыть телефон (P)">

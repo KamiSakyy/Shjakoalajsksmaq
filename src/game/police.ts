@@ -16,6 +16,13 @@ export interface Officer {
   phase: number;
   deadT: number;
   patrolTarget: THREE.Vector3;
+  /** Точность растёт, пока офицер держит игрока на прицеле. */
+  aimT: number;
+  /** Очередь: сколько выстрелов осталось и пауза между ними. */
+  burst: number;
+  burstT: number;
+  /** Последняя известная позиция игрока — для поиска после потери. */
+  lastKnown: THREE.Vector3;
   patrolTimer: number;
   side: 1 | -1;
 }
@@ -48,6 +55,8 @@ export class Police {
   cars: PoliceCar[] = [];
   officers: Officer[] = [];
   siren = true;
+  /** Мирный режим: полиция не замечает преступлений и не преследует. */
+  hostile = true;
   sirenPhase = 0;
   private blocked: (x: number, z: number) => boolean = () => false;
   onFall?: (o: Officer, dir: THREE.Vector3) => void;
@@ -57,6 +66,7 @@ export class Police {
   constructor(public scene: THREE.Scene, private traffic?: Traffic) {}
 
   crime(amount: number) {
+    if (!this.hostile) { this.wanted = 0; this.stars = 0; this.heat = 0; return; }
     this.wanted = Math.min(5, this.wanted + amount);
     this.heat = 22 + this.wanted * 12;
     this.stars = Math.min(5, Math.ceil(this.wanted));
@@ -89,6 +99,15 @@ export class Police {
     wet = 0,
   ) {
     this.blocked = blocked;
+    if (!this.hostile) {
+      // мирный режим: патрульные просто гуляют, розыска нет
+      this.wanted = 0; this.stars = 0; this.heat = 0;
+      for (const o of this.officers) {
+        if (o.state !== 'dead') o.state = 'patrol';
+      }
+      this.sirenPhase += dt * 2;
+      return;
+    }
     // накопление / сброс
     if (this.wanted > 0) {
       this.heat -= dt;
@@ -160,6 +179,7 @@ export class Police {
       if (o.state === 'dead') { o.deadT += dt; if (!this.onFall) o.root.rotation.x = Math.min(Math.PI / 2, o.root.rotation.x + dt * 3); continue; }
       if (this.wanted <= 0) {
         o.state = 'patrol';
+        o.aimT = 0; o.burst = 0; o.burstT = 0;
         o.patrolTimer -= dt;
         if (o.patrolTimer <= 0 || o.pos.distanceTo(o.patrolTarget) < 1) {
           o.patrolTimer = 8 + Math.random() * 6;
@@ -193,30 +213,68 @@ export class Police {
       let dy = desired - o.yaw;
       while (dy > Math.PI) dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
-      o.yaw += Math.max(-3 * dt, Math.min(3 * dt, dy));
+      o.yaw += Math.max(-3.4 * dt, Math.min(3.4 * dt, dy));
       o.phase += dt * 6;
-      const shootRange = d < 22 && Math.abs(dy) < 0.5;
-      if (shootRange) {
+      if (d < 38) o.lastKnown.copy(playerPos);
+
+      const inSight = d < 24 && Math.abs(dy) < 0.55;
+      const wounded = o.hp < 26;
+      o.aimT = inSight ? Math.min(1.6, o.aimT + dt) : Math.max(0, o.aimT - dt * 1.6);
+      o.burstT = Math.max(0, o.burstT - dt);
+
+      if (inSight) {
         o.state = 'shoot';
+        // раненый отходит за укрытие, но продолжает огонь
+        if (wounded) {
+          const away = o.pos.clone().addScaledVector(to, -dt * 2.2);
+          const side = new THREE.Vector3(-to.z, 0, to.x).multiplyScalar(o.side * dt * 1.6);
+          away.add(side);
+          if (!blocked(away.x, away.z)) o.pos.copy(away);
+        } else if (d < 7) {
+          // слишком близко — пятится, сохраняя линию огня
+          const back = o.pos.clone().addScaledVector(to, -dt * 1.4);
+          if (!blocked(back.x, back.z)) o.pos.copy(back);
+        } else {
+          // стреляет на ходу, смещаясь вбок (не толпа в одной точке)
+          const strafe = new THREE.Vector3(-to.z, 0, to.x).multiplyScalar(o.side * dt * 1.1);
+          const next = o.pos.clone().add(strafe);
+          if (!blocked(next.x, next.z)) o.pos.copy(next);
+        }
+        // стрельба очередями: 3 выстрела, пауза
         o.fireT -= dt;
-        o.shootCd -= dt;
-        if (o.fireT <= 0) {
-          o.fireT = 0.5 + Math.random() * 0.4;
+        if (o.fireT <= 0 && o.burstT <= 0) {
+          const aimQ = 0.055 + (1.6 - Math.min(1.6, o.aimT)) * 0.055 + (wounded ? 0.035 : 0);
           const dir = new THREE.Vector3().subVectors(playerPos.clone().setY(1.4), o.pos.clone().setY(1.4)).normalize();
-          dir.x += (Math.random() - 0.5) * 0.07;
-          dir.y += (Math.random() - 0.5) * 0.04;
-          dir.z += (Math.random() - 0.5) * 0.07;
+          dir.x += (Math.random() - 0.5) * aimQ * 2;
+          dir.y += (Math.random() - 0.5) * aimQ;
+          dir.z += (Math.random() - 0.5) * aimQ * 2;
           onShoot(o.pos.clone().setY(1.4), dir.normalize());
+          o.burst--;
+          if (o.burst <= 0) { o.burst = 3; o.burstT = 0.85 + Math.random() * 0.5; }
+          else o.fireT = 0.11;
+          if (o.fireT <= 0) o.fireT = 0;
+        }
+      } else if (this.wanted > 0) {
+        // потерял из вида — идёт к последней известной точке
+        o.state = 'chase';
+        const target = o.lastKnown;
+        const dirV = new THREE.Vector3().subVectors(target, o.pos).setY(0);
+        const dl = dirV.length();
+        if (dl > 2.5) {
+          dirV.normalize();
+          const sp = 3.7;
+          const flank = o.side * Math.min(6, Math.max(0, dl - 7) * 0.5);
+          const aimX = dirV.x * dl - dirV.z * flank, aimZ = dirV.z * dl + dirV.x * flank;
+          const aimLen = Math.hypot(aimX, aimZ) || 1;
+          const nx = o.pos.x + (aimX / aimLen) * sp * dt;
+          const nz = o.pos.z + (aimZ / aimLen) * sp * dt;
+          if (!blocked(nx, nz)) { o.pos.x = nx; o.pos.z = nz; }
+        } else {
+          // на месте: осматривается, «ищет»
+          o.yaw += Math.sin(this.sirenPhase * 0.8 + o.phase) * dt * 1.4;
         }
       } else {
-        o.state = 'chase';
-        const sp = 3.4;
-        const flank = o.side * Math.min(7, Math.max(0, d - 6) * 0.6);
-        const aimX = to.x * d - to.z * flank, aimZ = to.z * d + to.x * flank;
-        const aimLen = Math.hypot(aimX, aimZ) || 1;
-        const nx = o.pos.x + (aimX / aimLen) * sp * dt;
-        const nz = o.pos.z + (aimZ / aimLen) * sp * dt;
-        if (!blocked(nx, nz)) { o.pos.x = nx; o.pos.z = nz; }
+        o.state = 'patrol';
       }
       o.root.position.set(o.pos.x, 0, o.pos.z);
       o.root.rotation.y = o.yaw;
@@ -283,7 +341,7 @@ export class Police {
     root.position.copy(pos);
     root.updateWorldMatrix(true, true);
     this.scene.add(root);
-    this.officers.push({ root, rig, pos, yaw: 0, hp: 60, state: this.wanted ? 'chase' : 'patrol', shootCd: 0, fireT: 1 + Math.random(), vel: new THREE.Vector3(), phase: Math.random() * 6, deadT: 0, patrolTarget: pos.clone(), patrolTimer: 0, side: Math.random() < 0.5 ? -1 : 1 });
+    this.officers.push({ root, rig, pos, yaw: 0, hp: 60, state: this.wanted ? 'chase' : 'patrol', shootCd: 0, fireT: 1 + Math.random(), vel: new THREE.Vector3(), phase: Math.random() * 6, deadT: 0, patrolTarget: pos.clone(), patrolTimer: 0, side: Math.random() < 0.5 ? -1 : 1, aimT: 0, burst: 0, burstT: 0, lastKnown: pos.clone() });
   }
 
   hitOfficer(o: Officer, dmg: number, dir: THREE.Vector3) {

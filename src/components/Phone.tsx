@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Game, HudState, Quality } from '../game/Game';
 import { formatMoney } from '../game/economy';
+import { SHOP_SECTIONS, SHOP } from '../game/shop';
 
-type AppId = 'missions' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings' | 'profile';
+type AppId = 'missions' | 'shop' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings' | 'profile';
 
 interface Props {
   game: Game | null;
@@ -17,6 +18,7 @@ interface Props {
 
 const APPS: { id: AppId; label: string; glyph: string; tone: string }[] = [
   { id: 'missions', label: 'Миссии', glyph: '★', tone: '#ff6b6b' },
+  { id: 'shop', label: 'Магазин', glyph: '⌂', tone: '#f0a05a' },
   { id: 'wallet', label: 'Кошелёк', glyph: '$', tone: '#43d9a3' },
   { id: 'camera', label: 'Камера', glyph: '◉', tone: '#7fb8ff' },
   { id: 'contacts', label: 'Контакты', glyph: '☎', tone: '#ffd166' },
@@ -91,8 +93,8 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
           <div className="phone-wallpaper" />
           <header className="phone-head">
             <div>
-              <small>{app === 'missions' ? 'ЗАДАНИЯ' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'profile' ? 'ПРОФИЛЬ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
-              <h3>{app === 'missions' ? 'Телефон' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'profile' ? `Уровень ${hud.level}` : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
+              <small>{app === 'missions' ? 'ЗАДАНИЯ' : app === 'shop' ? 'МАГАЗИН' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'profile' ? 'ПРОФИЛЬ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
+              <h3>{app === 'missions' ? 'Телефон' : app === 'shop' ? 'Vice Motors' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'profile' ? `Уровень ${hud.level}` : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
             </div>
             <button className="phone-x" onClick={onClose} aria-label="Закрыть телефон">✕</button>
           </header>
@@ -115,6 +117,56 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
               ))}
               {completed.length > 0 && <div className="phone-done">Выполнено заданий: {completed.length}</div>}
               {unread > 0 && <div className="phone-done">Новых уведомлений: {unread}</div>}
+            </>}
+
+            {app === 'shop' && <>
+              <div className="phone-shop-top">
+                <div><small>БАЛАНС</small><b>{formatMoney(hud.cash + hud.bank)}</b></div>
+                <span>Доставка к подъезду</span>
+              </div>
+              {SHOP_SECTIONS.map(sec => (
+                <div key={sec.kind}>
+                  <div className="phone-section-title">{sec.title.toUpperCase()}</div>
+                  {SHOP.filter(i => i.kind === sec.kind).map(item => {
+                    const owned = !!item.once && (game?.owned.has(item.id) || game?.upgrades.has(item.id));
+                    const afford = hud.cash + hud.bank >= item.price;
+                    return (
+                      <div className="phone-card shop-item" key={item.id}>
+                        <div className="shop-glyph">{item.glyph}</div>
+                        <div className="shop-text">
+                          <b>{item.name}</b>
+                          <small>{item.desc}</small>
+                        </div>
+                        <div className="shop-buy">
+                          <span>{formatMoney(item.price)}</span>
+                          <button
+                            disabled={owned || !afford}
+                            className={owned ? 'owned' : ''}
+                            onClick={() => {
+                              if (!game) return;
+                              const r = game.shopBuy(item.id);
+                              if (!r.ok) game.notify('Магазин', r.msg);
+                              setTick(v => v + 1);
+                            }}
+                          >{owned ? 'КУПЛЕНО' : afford ? 'КУПИТЬ' : 'НЕТ ДЕНЕГ'}</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {!!game?.garage.length && <>
+                <div className="phone-section-title">МОЙ ГАРАЖ</div>
+                {game.garage.map(g => (
+                  <div className="phone-card shop-item" key={g.id}>
+                    <div className="shop-glyph">⚑</div>
+                    <div className="shop-text"><b>{g.name}</b><small>Ключи у тебя. Можно вызвать в любую точку города.</small></div>
+                    <div className="shop-buy">
+                      <button onClick={() => { game.callVehicle(g.id); setTick(v => v + 1); }}>ВЫЗВАТЬ</button>
+                    </div>
+                  </div>
+                ))}
+              </>}
             </>}
 
             {app === 'wallet' && <>

@@ -4,7 +4,10 @@ import { createCharacter, woundMaterial, boneMaterial } from './characters';
 
 export type PartName = 'head' | 'torso' | 'armL' | 'armR' | 'foreL' | 'foreR' | 'thighL' | 'thighR' | 'shinL' | 'shinR';
 export type NpcKind = 'zombie' | 'human';
-export type NpcVariant = 'normal' | 'runner' | 'brute';
+export type NpcVariant =
+  | 'normal' | 'runner' | 'brute'      // зомби: ходок, бегун, громила
+  | 'jumper' | 'bloodsucker'            // зомби: прыгун, кровосос
+  | 'civil' | 'stalker' | 'bandit';     // люди: прохожий, сталкер, бандит
 
 export interface Capsule {
   a: THREE.Vector3;
@@ -75,6 +78,16 @@ export class Npc {
   crawler = false;
   crawlBlend = 0;
   hpBar: THREE.Mesh | null = null;
+  /** Мирный режим: не убегает и не сопротивляется. */
+  passive = false;
+  /** Кому принадлежит: сталкеры и бандиты воюют между собой и с зомби. */
+  targetEnemy: Npc | null = null;
+  private thinkTimer = Math.random() * 0.4;
+  /** Прыжок/рывок зомби-прыгуна. */
+  hop = 0;
+  private lungeCd = 2 + Math.random() * 2;
+  /** Бандит: охотится и на игрока. */
+  attackPlayer = false;
 
   fallDir = new THREE.Vector3(0, 0, 1);
   fallAngle = 0;
@@ -110,13 +123,16 @@ export class Npc {
     this.neck = rig.neck;
     this.head = rig.head;
     this.parts = rig.parts;
-    this.scale = v === 'brute' ? 1.2 : v === 'runner' ? 0.93 : 0.94 + Math.random() * 0.08;
-    this.speed = v === 'runner' ? 3.3 : v === 'brute' ? 0.85 : zombie ? 0.8 + Math.random() * 0.65 : 1.15 + Math.random() * 0.4;
-    this.gaitFreq = v === 'runner' ? 7.6 : zombie ? 3.4 : 5.2;
-    this.lean = zombie ? 0.08 + Math.random() * 0.13 : 0.025;
+    this.scale = v === 'brute' ? 1.22 : v === 'runner' ? 0.93 : v === 'bloodsucker' ? 1.06 : 0.94 + Math.random() * 0.08;
+    this.speed = v === 'runner' ? 3.4 : v === 'jumper' ? 2.2 : v === 'brute' ? 0.85
+      : v === 'bloodsucker' ? 1.9 : zombie ? 0.8 + Math.random() * 0.65
+      : v === 'bandit' ? 2.4 : v === 'stalker' ? 2.1 : 1.15 + Math.random() * 0.4;
+    this.gaitFreq = v === 'runner' ? 7.6 : v === 'jumper' ? 6.2 : zombie ? 3.4 : 5.2;
+    this.lean = zombie ? (v === 'bloodsucker' ? 0.24 : 0.08 + Math.random() * 0.13) : 0.025;
     this.armStyle = Math.random();
     this.limp = zombie ? Math.random() * 0.4 : 0;
-    this.hp = v === 'brute' ? 320 : v === 'runner' ? 55 : zombie ? 100 : 60;
+    this.hp = v === 'brute' ? 320 : v === 'runner' ? 55 : v === 'bloodsucker' ? 150 : v === 'jumper' ? 78
+      : zombie ? 100 : v === 'bandit' ? 130 : v === 'stalker' ? 95 : 60;
     this.root.position.copy(opts.pos);
     this.root.scale.setScalar(this.scale);
     if (opts.wander) { this.target.copy(opts.wander); this.hasTarget = true; }
@@ -125,6 +141,22 @@ export class Npc {
   }
 
   get alive() { return this.state !== 'dead'; }
+
+  /** Настройка внешнего вида под вариант (кровосос почти невидим в темноте). */
+  applyVariantLook(night = 0) {
+    if (this.variant === 'bloodsucker') {
+      const k = 0.32 + (1 - night) * 0.36;
+      this.root.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
+        if (m && m.isMeshStandardMaterial) {
+          m.transparent = true;
+          m.opacity = THREE.MathUtils.clamp(k, 0.22, 0.72);
+          m.emissive = new THREE.Color(0x2a0507);
+          m.emissiveIntensity = 0.5;
+        }
+      });
+    }
+  }
   position() { return this.root.position; }
 
   glanceAt(p: THREE.Vector3) { this.gaze = { x: p.x, z: p.z, time: 1.35 }; }
@@ -254,10 +286,69 @@ export class Npc {
     if (this.kind === 'human') {
       // живой человек: бродит, убегает от зомби и от стрельбы
       this.wanderTimer -= dt;
+      const aggressive = this.variant === 'bandit' || this.variant === 'stalker';
+      this.thinkTimer -= dt;
+      if (this.thinkTimer <= 0) {
+        this.thinkTimer = 0.4 + Math.random() * 0.4;
+        if (aggressive) {
+          // сталкеры бьют зомби, бандиты — всех, включая игрока
+          let best: Npc | null = null; let bd = this.variant === 'bandit' ? 16 : 13;
+          for (const o of npcs) {
+            if (o === this || o.state === 'dead') continue;
+            const hostile = this.variant === 'bandit' ? o.kind === 'zombie' || o.kind === 'human'
+              : o.kind === 'zombie';
+            if (!hostile) continue;
+            const d = o.position().distanceToSquared(p);
+            if (d < bd * bd) { bd = Math.sqrt(d); best = o; }
+          }
+          this.targetEnemy = best;
+        }
+      }
       const nearZombie = npcs.some((n) => n !== this && n.kind === 'zombie' && n.alive && n.position().distanceTo(p) < 9);
-      const threat = nearZombie || this.panicT > 0;
-      if (this.panicT > 0) this.panicT -= dt;
-      if (threat) {
+      const threat = (nearZombie && !aggressive) || this.panicT > 0;
+      if (this.passive) {
+        // мирный режим: идёт своей дорогой, не замечает угроз
+        this.panicT = 0;
+        this.state = 'walk';
+        if (this.walkPlan) {
+          const toT2 = _v2.subVectors(this.walkPlan.target, p).setY(0);
+          moveSpeed = this.walkPlan.waiting ? 0 : this.speed * Math.min(1, toT2.length() * 2);
+          if (toT2.lengthSq() > 0.01) desiredYaw = Math.atan2(toT2.x, toT2.z);
+        } else {
+          if (this.wanderTimer <= 0 || !this.hasTarget) {
+            this.wanderTimer = 4 + Math.random() * 7;
+            this.hasTarget = true;
+            const a = Math.random() * Math.PI * 2;
+            const r = 8 + Math.random() * 24;
+            this.target.set(p.x + Math.cos(a) * r, 0, p.z + Math.sin(a) * r);
+          }
+          const toT = _v2.subVectors(this.target, p); toT.y = 0;
+          if (toT.length() < 1.6) { this.wanderTimer = Math.min(this.wanderTimer, 0.5); moveSpeed = 0; }
+          else { desiredYaw = Math.atan2(toT.x, toT.z); moveSpeed = 1.35; }
+        }
+        this.state = 'walk';
+      } else if (aggressive && (this.targetEnemy || (this.attackPlayer && dist < 20))) {
+        // бой с врагом: зомби, чужак или сам игрок
+        const enemy = this.targetEnemy && this.targetEnemy.state !== 'dead' ? this.targetEnemy : null;
+        const chasePlayer = this.attackPlayer && (!enemy || dist < enemy.position().distanceTo(p) + 2);
+        const tp = chasePlayer ? playerPos : enemy!.position();
+        const toE = _v2.subVectors(tp, p).setY(0);
+        const dE = toE.length();
+        desiredYaw = Math.atan2(toE.x, toE.z);
+        if (dE > 1.35) moveSpeed = this.speed;
+        else {
+          this.attackCd = Math.max(0, this.attackCd - dt);
+          if (this.attackCd <= 0) {
+            this.attackCd = 0.9 + Math.random() * 0.5;
+            this.attackT = 0;
+            this.state = 'attack';
+            if (chasePlayer) onAttack();
+            else if (enemy) enemy.applyHit('torso', 14, toE.normalize(), 0.15);
+          }
+        }
+        if (this.state !== 'attack') this.state = 'walk';
+      } else if (threat) {
+        if (this.panicT > 0) this.panicT -= dt;
         const src = nearZombie ? npcs.find((n) => n !== this && n.kind === 'zombie' && n.alive && n.position().distanceTo(p) < 9) : null;
         const from = src ? src.position() : playerPos;
         desiredYaw = Math.atan2(p.x - from.x, p.z - from.z);
@@ -283,20 +374,41 @@ export class Npc {
         else { desiredYaw = Math.atan2(toT.x, toT.z); moveSpeed = 1.5; if (this.state === 'idle') this.state = 'walk'; }
       }
     } else {
-      // зомби
-      const reach = this.crawler ? 1.1 : this.variant === 'brute' ? 1.75 : 1.45;
+      // ── зомби ──────────────────────────────────────────────────────
+      const reach = this.crawler ? 1.1 : this.variant === 'brute' ? 1.75 : this.variant === 'bloodsucker' ? 1.7 : 1.45;
       this.attackCd = Math.max(0, this.attackCd - dt);
+      this.lungeCd = Math.max(0, this.lungeCd - dt);
+      this.hop = Math.max(0, this.hop - dt);
+
+      // кровосос атакует рывком с дистанции
+      if (this.variant === 'bloodsucker' && this.lungeCd <= 0 && dist < 6.5 && dist > 1.6 && this.state === 'walk') {
+        this.lungeCd = 3.4 + Math.random() * 1.6;
+        this.hop = 0.55;
+        this.vel.addScaledVector(toP, 9.5);
+        this.state = 'attack';
+        this.attackT = 0.35;
+        this.attackDone = false;
+      }
+      // прыгун прыгает на игрока
+      if (this.variant === 'jumper' && this.lungeCd <= 0 && dist < 8 && dist > 2.2 && this.state === 'walk') {
+        this.lungeCd = 2.2 + Math.random() * 1.4;
+        this.hop = 0.5;
+        this.vel.addScaledVector(toP, 6.4);
+        moveSpeed = 0;
+      }
+
       if (this.state === 'walk') {
         if (dist < reach && this.attackCd <= 0) {
           this.state = 'attack'; this.attackT = 0; this.attackDone = false;
         } else if (dist > reach * 0.8) {
-          moveSpeed = this.speed * (this.crawler ? 0.45 : 1) * (1 - this.limp * 0.3 * Math.max(0, Math.sin(this.phase)));
+          const burst = this.hop > 0 ? 1.8 : 1;
+          moveSpeed = this.speed * burst * (this.crawler ? 0.45 : 1) * (1 - this.limp * 0.3 * Math.max(0, Math.sin(this.phase)));
         }
       } else if (this.state === 'attack') {
         this.attackT += dt;
         if (this.attackT > 0.55 && !this.attackDone) {
           this.attackDone = true;
-          if (dist < reach + 0.25) onAttack();
+          if (dist < reach + (this.variant === 'bloodsucker' ? 1.6 : 0.25)) onAttack();
         }
         if (this.attackT > 1.1) { this.state = 'walk'; this.attackCd = 0.8 + Math.random() * 0.8; }
       } else if (this.state === 'stagger') {

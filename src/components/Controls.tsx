@@ -227,6 +227,15 @@ export function Controls({ game, hud }: Props) {
             </button>
           )}
             <button
+              className="h-14 w-14 rounded-full border border-sky-300/50 bg-sky-900/40 text-[9px] font-bold uppercase tracking-wider text-sky-100 active:scale-95"
+              onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); game.jumpHeldBtn = true; game.jump(); }}
+              onPointerUp={() => { game.jumpHeldBtn = false; }}
+              onPointerCancel={() => { game.jumpHeldBtn = false; }}
+              aria-label="Прыжок и паркур"
+            >
+              ПРЫЖОК
+            </button>
+            <button
               className="h-12 w-12 rounded-full border border-amber-300/50 bg-black/50 text-[9px] font-bold uppercase tracking-wider text-amber-100 active:scale-95"
               onClick={() => game.throwProjectile()}
               onContextMenu={(e) => { e.preventDefault(); game.cycleThrowable(); }}

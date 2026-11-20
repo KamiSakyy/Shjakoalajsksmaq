@@ -9,7 +9,9 @@ import { LANDMARKS } from './city-plan';
  * сама, побочные заказы приходят в телефон.
  */
 
-export type ObjectiveKind = 'goto' | 'talk' | 'rob' | 'kill' | 'photo' | 'deliver' | 'survive' | 'destroy' | 'earn' | 'escape' | 'wanted';
+export type ObjectiveKind =
+  | 'goto' | 'talk' | 'rob' | 'kill' | 'photo' | 'deliver' | 'survive'
+  | 'destroy' | 'earn' | 'escape' | 'wanted' | 'height' | 'drive';
 
 export interface Objective {
   kind: ObjectiveKind;
@@ -22,6 +24,8 @@ export interface Objective {
   wanted?: number;
   of?: 'zombie' | 'human' | 'officer';
   target?: 'heli' | 'tank';
+  /** Для drive: какой транспорт нужен. */
+  car?: string;
 }
 
 export interface Quest {
@@ -56,6 +60,10 @@ export interface QuestState {
   heliKills: number;
   tankKills: number;
   time: number;
+  /** Высота над землёй — для паркурных задач. */
+  height: number;
+  /** Скорость текущего транспорта, м/с. */
+  speed: number;
 }
 
 export interface QuestApi {
@@ -78,6 +86,8 @@ const ocean = at('ocean');
 const beach = at('beach');
 const island = at('island');
 const bank = at('bank');
+const marina = at('marina');
+const station = at('station');
 
 export const STORY: Quest[] = [
   {
@@ -92,9 +102,9 @@ export const STORY: Quest[] = [
   },
   {
     id: 'debts', title: 'Долги', giver: 'Рико', district: 'Саут-Бич',
-    brief: 'Трое должны Рико. Деньги можно забрать вежливо — а можно и нет. Наведи оружие и обыщи карманы.',
+    brief: 'Четверо должны Рико. Деньги можно забрать вежливо — а можно и нет. Наведи оружие и обыщи карманы.',
     objectives: [
-      { kind: 'rob', text: 'Собрать долг с трёх прохожих', count: 3 },
+      { kind: 'rob', text: 'Собрать долг с четырёх прохожих', count: 4 },
       { kind: 'talk', text: 'Вернуться к Рико', ...diner, r: 12 },
     ],
     reward: 700, xp: 120,
@@ -104,26 +114,55 @@ export const STORY: Quest[] = [
     brief: 'Нужна машина — любая, но лучше чужая. Довезёшь до мастерской Уэстсайд целой и получишь наличные.',
     objectives: [
       { kind: 'deliver', text: 'Угнать машину и пригнать в мастерскую', ...garage, r: 16 },
+      { kind: 'escape', text: 'Сбросить розыск после угона', seconds: 0 },
     ],
     reward: 1100, xp: 200,
   },
   {
-    id: 'heat', title: 'Горячая ночь', giver: 'Рико', district: 'Пасифик-центр',
-    brief: 'Копы не любят, когда стреляют в центре. Продержись в погоне минуту — и Рико это оценит.',
+    id: 'ambush', title: 'Засада в доках', giver: 'Рико', district: 'Марина',
+    brief: 'Покупатель оказался не один. Четверо с битами ждут у причалов — переговоры отменяются. Никто не должен уйти.',
     objectives: [
-      { kind: 'survive', text: 'Продержаться в погоне 60 секунд', seconds: 60, wanted: 2 },
+      { kind: 'goto', text: 'Приехать в марину', ...marina, r: 26 },
+      { kind: 'kill', text: 'Устранить четырёх человек из засады', count: 4, of: 'human' },
+    ],
+    reward: 1500, xp: 260,
+  },
+  {
+    id: 'heat', title: 'Горячая ночь', giver: 'Рико', district: 'Пасифик-центр',
+    brief: 'Копы не любят, когда стреляют в центре. Подними три звезды, продержись полторы минуты — и уйди чистым.',
+    objectives: [
+      { kind: 'survive', text: 'Продержаться в погоне 90 секунд', seconds: 90, wanted: 3 },
       { kind: 'escape', text: 'Оторваться от полиции', seconds: 0 },
     ],
-    reward: 1600, xp: 260,
+    reward: 1900, xp: 320,
   },
   {
     id: 'postcard', title: 'Открытка с пляжа', giver: 'Мила', district: 'Пляж',
-    brief: 'Мила просит пару кадров: бирюзовая вода, белый песок и пальмы. Открой телефон → Камера.',
+    brief: 'Мила просит три кадра: бирюзовая вода, белый песок и пальмы. Открой телефон → Камера.',
     objectives: [
-      { kind: 'photo', text: 'Сделать фото на пляже', count: 2, ...beach, r: 150 },
+      { kind: 'photo', text: 'Сделать три фото на пляже', count: 3, ...beach, r: 150 },
       { kind: 'goto', text: 'Показать кадры Миле у отеля', ...motel, r: 20 },
     ],
-    reward: 900, xp: 180,
+    reward: 1200, xp: 180,
+  },
+  {
+    id: 'rooftop', title: 'Крыши', giver: 'Мила', district: 'Даунтаун',
+    brief: 'Мила снимает панораму города — но снизу мешают провода. Заберись по стене на крышу выше шестнадцати метров: прыжок, хват, подъём.',
+    objectives: [
+      { kind: 'height', text: 'Забраться на высоту 16 м', count: 16 },
+      { kind: 'photo', text: 'Снять город с крыши', count: 1 },
+    ],
+    reward: 1600, xp: 280,
+  },
+  {
+    id: 'mole', title: 'Крот', giver: 'Рико', district: 'Северный центр',
+    brief: 'В участке кто-то сливает дела. Рико просит убрать трёх стукачей в форме и не оставить следов — уйди от погони.',
+    objectives: [
+      { kind: 'goto', text: 'Подойти к участку', ...station, r: 30 },
+      { kind: 'kill', text: 'Устранить трёх полицейских', count: 3, of: 'officer' },
+      { kind: 'escape', text: 'Скрыться с места', seconds: 0 },
+    ],
+    reward: 3200, xp: 460,
   },
   {
     id: 'shark', title: 'Шум сверху', giver: 'Рико', district: 'Бэйфронт',
@@ -132,34 +171,75 @@ export const STORY: Quest[] = [
       { kind: 'wanted', text: 'Поднять розыск до 4 звёзд', wanted: 4 },
       { kind: 'destroy', text: 'Уничтожить вертолёт полиции', target: 'heli', count: 1 },
     ],
-    reward: 3200, xp: 420,
+    reward: 4200, xp: 520,
+  },
+  {
+    id: 'convoy', title: 'Конвой', giver: 'Рико', district: 'Пасифик-центр',
+    brief: 'Колонна с грузом идёт через центр. Сожги две машины сопровождения и не попадись на глаза снайперам.',
+    objectives: [
+      { kind: 'wanted', text: 'Поднять розыск до 4 звёзд', wanted: 4 },
+      { kind: 'survive', text: 'Продержаться 60 секунд под огнём', seconds: 60, wanted: 4 },
+      { kind: 'escape', text: 'Уйти от погони', seconds: 0 },
+    ],
+    reward: 5600, xp: 640,
   },
   {
     id: 'armor', title: 'Броня', giver: 'Рико', district: 'Пасифик-центр',
-    brief: 'На пять звёзд в город выезжает танк. Керамика и упорство. Уничтожь его.',
+    brief: 'На пять звёзд в город выезжает танк. Керамика, упорство и что-нибудь взрывное. Уничтожь его.',
     objectives: [
       { kind: 'wanted', text: 'Поднять розыск до 5 звёзд', wanted: 5 },
       { kind: 'destroy', text: 'Уничтожить танк', target: 'tank', count: 1 },
     ],
-    reward: 6000, xp: 700,
+    reward: 7000, xp: 800,
+  },
+  {
+    id: 'heist', title: 'Дело века', giver: 'Рико', district: 'Пасифик-центр',
+    brief: 'Банк «Пасифик» вывозит наличные в фургоне. Нужно семь тысяч сверху и чистый уход — иначе Рико не заплатит.',
+    objectives: [
+      { kind: 'earn', text: 'Заработать ещё $7000', count: 7000 },
+      { kind: 'goto', text: 'Вернуться в банк за долей', ...bank, r: 22 },
+      { kind: 'escape', text: 'Уйти от полиции', seconds: 0 },
+    ],
+    reward: 9000, xp: 1000,
   },
   {
     id: 'king', title: 'Король города', giver: 'Рико', district: 'Залив',
-    brief: 'Деньги, репутация, вода цвета электрик. Приезжай на остров — поговорим о будущем.',
+    brief: 'Деньги, репутация, вода цвета электрик. Приезжай на остров — поговорим о будущем. Но сначала докажи, что умеешь ездить.',
     objectives: [
-      { kind: 'earn', text: 'Заработать ещё $4000', count: 4000 },
+      { kind: 'drive', text: 'Провести спортивную машину 40 секунд', seconds: 40, car: 'sport' },
       { kind: 'goto', text: 'Приехать на остров Миллионеров', ...island, r: 70 },
     ],
-    reward: 12000, xp: 1200, finale: true,
+    reward: 15000, xp: 1400, finale: true,
   },
 ];
 
 export const SIDE_QUESTS: Quest[] = [
   {
     id: 'cleanup', title: 'Заказ: уборка', giver: 'Мила', district: 'Уэстсайд',
-    brief: 'Район заполонили. Зачисти восемь заражённых — Мила платит за каждого.',
-    objectives: [{ kind: 'kill', text: 'Устранить 8 заражённых', count: 8, of: 'zombie' }],
+    brief: 'Район обнаглел. Убери шестерых — Мила платит за каждого, не спрашивая, кто они.',
+    objectives: [{ kind: 'kill', text: 'Устранить 6 человек', count: 6, of: 'human' }],
     reward: 850, xp: 140, side: true, unlockAfter: 'arrival',
+  },
+  {
+    id: 'infected', title: 'Заказ: карантин', giver: 'Мила', district: 'Даунтаун',
+    brief: 'Заражённые лезут из переулков. Двенадцать — и район снова дышит.',
+    objectives: [{ kind: 'kill', text: 'Устранить 12 заражённых', count: 12, of: 'zombie' }],
+    reward: 1100, xp: 180, side: true, unlockAfter: 'debts',
+  },
+  {
+    id: 'roofrun', title: 'Заказ: крыши', giver: 'Паркур-клуб', district: 'Даунтаун',
+    brief: 'Проверь себя: заберись на двадцать два метра без лифта и сними горизонт.',
+    objectives: [
+      { kind: 'height', text: 'Забраться на 22 м', count: 22 },
+      { kind: 'photo', text: 'Сделать фото горизонта', count: 1 },
+    ],
+    reward: 1400, xp: 220, side: true, unlockAfter: 'arrival',
+  },
+  {
+    id: 'nightdrive', title: 'Заказ: ночной заезд', giver: 'Гараж', district: 'Уэстсайд',
+    brief: 'Держи спорткар в движении 45 секунд — механики ставят на тебя деньги.',
+    objectives: [{ kind: 'drive', text: 'Ехать на спорткаре 45 секунд', seconds: 45, car: 'sport' }],
+    reward: 1600, xp: 240, side: true, unlockAfter: 'delivery',
   },
   {
     id: 'vigilante', title: 'Заказ: тишина', giver: 'Рико', district: 'Даунтаун',
@@ -230,6 +310,8 @@ export class QuestSystem {
     if (obj.kind === 'survive') return `${Math.floor(rt.timer)} / ${obj.seconds ?? 0} с`;
     if (obj.kind === 'wanted') return `${Math.min(this._state?.wanted ?? 0, obj.wanted ?? 1)} / ${obj.wanted ?? 1} ★`;
     if (obj.kind === 'escape') return 'скрыться';
+    if (obj.kind === 'height') return `${Math.floor(this._state?.height ?? 0)} / ${obj.count ?? 10} м`;
+    if (obj.kind === 'drive') return `${Math.floor(rt.timer)} / ${obj.seconds ?? 30} с`;
     return obj.text;
   }
 
@@ -355,6 +437,15 @@ export class QuestSystem {
       case 'escape':
         passed = state.wanted === 0;
         break;
+      case 'height':
+        passed = state.height >= (obj.count ?? 10);
+        break;
+      case 'drive': {
+        const rightCar = !obj.car || state.carKind === obj.car;
+        if (state.inCar && rightCar) rt.timer += dt;
+        passed = rt.timer >= (obj.seconds ?? 30);
+        break;
+      }
     }
 
     if (passed) {

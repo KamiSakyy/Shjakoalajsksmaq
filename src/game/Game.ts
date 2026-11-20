@@ -8,12 +8,13 @@ import { audio, type Material } from './audio';
 import { MATERIALS, makeTextures } from './materials';
 import { Particles } from './particles';
 import { Axe, type BladeSample } from './axe';
-import { Npc, type Capsule, type PartName } from './npc';
+import { Npc, type Capsule, type PartName, type NpcKind, type NpcVariant } from './npc';
 import { City, BLOCK, ROAD_W } from './city';
 import { Traffic, type Car } from './vehicle';
 import { DayNight } from './daynight';
 import { Pistol } from './pistol';
 import { Shotgun } from './shotgun';
+import type { CarKind } from './vehicle';
 import { Items } from './items';
 import { Police, type Officer } from './police';
 import { Weather } from './weather';
@@ -22,7 +23,7 @@ import { StreetLife } from './street-life';
 import { Emergencies } from './emergency';
 import { Radio } from './music';
 import { START, BOUNDS, LANDMARKS, cityRoute, distance, districtAt, locationName, streetPoint, type Point } from './city-plan';
-import { Ocean } from './ocean';
+import { Ocean, BEACH_START } from './ocean';
 import { Miami } from './miami';
 import { AirSupport } from './airforce';
 import { Economy } from './economy';
@@ -35,9 +36,14 @@ import { Wildlife } from './wildlife';
 import { Ambient } from './ambient';
 import { VehicleFx } from './vehicle-fx';
 import { Activities, type Interact } from './activities';
+import { Parkour } from './parkour';
+import { Ballistics, type Surface } from './ballistics';
+import { MODES, pickVariant, type GameMode } from './modes';
+import { RooftopLife } from './rooftops';
+import { SHOP_BY_ID } from './shop';
 
 export type Weapon = 'axe' | 'pistol' | 'shotgun';
-export type GameMode = 'horror' | 'peace' | 'police';
+export type { GameMode } from './modes';
 export type { Quality };
 export type WeatherMode = 'auto' | 'clear' | 'rain';
 export type Stance = 'stand' | 'crouch' | 'prone';
@@ -115,6 +121,12 @@ export interface HudState {
   molotovs: number;
   grenades: number;
   throwKind: string;
+  parkour: string;
+  height: number;
+  hitMarker: number;
+  hitHead: boolean;
+  armor: number;
+  armorMax: number;
 }
 
 export type GameEvent =
@@ -237,6 +249,19 @@ export class Game {
   interactTarget: Interact | null = null;
   /** Разблокированные навыки. */
   perks = new Set<string>();
+  parkour = new Parkour();
+  ballistics!: Ballistics;
+  rooftops!: RooftopLife;
+  /** Метка попадания 0..1 — для HUD. */
+  hitMarker = 0;
+  private hitMarkerHead = false;
+  private musicTimer = 0;
+  velY = 0;
+  onGround = true;
+  private jumpQueued = false;
+  private landShake = 0;
+  /** Последнее событие паркура — для HUD и звука. */
+  parkourEvent: string | null = null;
   /** Метательное: бутылки с зажигательной смесью и гранаты. */
   molotovs = 3;
   grenades = 2;
@@ -277,6 +302,12 @@ export class Game {
   bobPhase = 0;
   lastBobSin = 0;
   hp = 100;
+  armor = 0;
+  maxArmor = 100;
+  /** Куплено в магазине телефона. */
+  readonly owned = new Set<string>();
+  readonly upgrades = new Set<string>();
+  garage: { id: string; name: string; carKind: CarKind; paint?: number }[] = [];
   eyeHeight = 1.68;
   camAngVel = new THREE.Vector2();
   prevYaw = 0;
@@ -325,7 +356,7 @@ export class Game {
   private fpsAcc = performance.now();
   private fpsCount = 0;
   wanted = 0;
-  mode: GameMode = 'horror';
+  mode: GameMode = 'normal';
   quality: Quality = 'auto';
   level = 1;
   xp = 0;
@@ -379,6 +410,8 @@ export class Game {
     this.ocean = new Ocean(this.scene, this.budget.waterSegments, this.budget.waterShaderDetail);
     this.miami = new Miami(this.scene, this.city);
     this.city.reindex();
+    // крыши: кондиционеры, баки, антенны — награда за паркур
+    this.rooftops = new RooftopLife(this.scene, this.city.boxes, this.budget.tier);
     this.traffic = new Traffic(this.scene);
     this.physics = new BodyPhysics(this.city.boxes);
     this.air = new AirSupport(this.scene);
@@ -455,6 +488,7 @@ export class Game {
     });
     this.vfx = new VehicleFx(this.scene, this.particles, this.budget.tier);
     this.activities = new Activities(this.scene, groundAt);
+    this.ballistics = new Ballistics(this.scene, groundAt, this.budget.tier);
 
     // трассеры пуль
     const tracerGeo = new THREE.CylinderGeometry(0.012, 0.004, 0.9, 5);
@@ -540,7 +574,14 @@ export class Game {
       }
     } else this.keys.delete(e.code);
     if (e.code === 'ShiftLeft') this.sprint = e.type === 'keydown';
-    if (e.code === 'Space') { this.handbrake = e.type === 'keydown'; if (this.running) e.preventDefault(); }
+    if (e.code === 'Space') {
+      if (e.type === 'keydown' && !e.repeat && !this.paused) {
+        if (this.vehicle) this.handbrake = true;
+        else this.jump();
+      }
+      if (e.type === 'keyup') this.handbrake = false;
+      if (this.running) e.preventDefault();
+    }
   };
   private onMouseDown = (e: MouseEvent) => {
     if (!this.running || this.gameOver || this.paused) return;
@@ -569,6 +610,7 @@ export class Game {
     this.keys.clear(); this.moveInput.set(0, 0); this.kbActive = false;
     this.driveBtn = { left: false, right: false, gas: false, brake: false };
     this.fireHold = this.adsHold = this.pullHold = this.handbrake = this.sprint = false;
+    this.jumpHeldBtn = this.crouchBtn = false;
     this.axe.cancel();
   }
 
@@ -753,14 +795,14 @@ export class Game {
       if (o.state !== 'dead' && o.pos.distanceTo(car.pos) < 8) this.police.hitOfficer(o, 300, new THREE.Vector3());
     }
     const pd = this.pos.distanceTo(car.pos);
-    if (pd < 9 && !this.vehicle) { this.hp = Math.max(0, this.hp - (1 - pd / 9) * 44); this.trauma = 1; this.onEvent?.({ type: 'hurt' }); }
+    if (pd < 9 && !this.vehicle) { this.damage((1 - pd / 9) * 44); this.trauma = 1; this.onEvent?.({ type: 'hurt' }); }
     this.police.onCarDestroyed(car);
     if (car.kind === 'police') {
       this.killsOfficer += 0;
       this.economy.add(150, 'Уничтожен патруль');
       this.notify('Полиция', 'Патрульная машина уничтожена');
     }
-    if (this.vehicle === car) { this.hp = Math.max(0, this.hp - 32); this.exitCar(); }
+    if (this.vehicle === car) { this.damage(32); this.exitCar(); }
     if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты погиб при взрыве'); }
     this.police.crime(0.35);
     this.setLog(this.vehicle === car ? 'МАШИНА ВЗОРВАЛАСЬ' : 'ВЗРЫВ МАШИНЫ');
@@ -928,6 +970,8 @@ export class Game {
     return {
       x: this.pos.x, z: this.pos.z, inCar: !!this.vehicle, carKind: this.vehicle?.kind ?? null,
       wanted: this.police.stars, cash: this.economy.cash, earned: this.economy.earned,
+      height: Math.max(0, this.pos.y - this.city.surfaceAt(this.pos.x, this.pos.z)),
+      speed: this.vehicle ? Math.abs(this.vehicle.vLong) : Math.hypot(this.vel.x, this.vel.z),
       robbed: this.economy.robbed, killsZombie: this.killsZombie, killsHuman: this.killsHuman,
       killsOfficer: this.killsOfficer, photos: this.photoCount, photoX: this.photoX, photoZ: this.photoZ,
       heliKills: this.heliKills, tankKills: this.tankKills, time: this.time,
@@ -970,7 +1014,7 @@ export class Game {
       if (o.state !== 'dead' && o.pos.distanceTo(pos) < radius) this.police.hitOfficer(o, 400, new THREE.Vector3());
     }
     if (d < radius && !this.vehicle) {
-      this.hp = Math.max(0, this.hp - (1 - d / radius) * 55 * power);
+      this.damage((1 - d / radius) * 55 * power);
       this.onEvent?.({ type: 'hurt' });
       if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты погиб при взрыве'); }
     }
@@ -996,6 +1040,8 @@ export class Game {
   enterCar(c: Car) {
     if (c.exploded) { this.setLog('Машина сгорела — за руль не сесть'); return; }
     this.resetInput();
+    this.parkour.cancel();
+    this.velY = 0; this.onGround = true;
     this.vehicle = c;
     c.isPlayer = true;
     c.ai = false;
@@ -1030,6 +1076,7 @@ export class Game {
     if (this.city.blockedAt(this.pos.x, this.pos.z, 0.44)) this.pos.set(c.pos.x - x, 0, c.pos.z - z);
     this.cityCollide(this.pos, 0.38); this.city.keepOnLand(this.pos);
     this.pos.y = this.city.surfaceAt(this.pos.x, this.pos.z);
+    this.velY = 0; this.onGround = true; this.parkour.cancel();
     this.yaw = c.yaw + Math.PI; this.camLagYaw = this.yaw; this.pitch = this.camLagPitch = 0;
     this.vel.set(0, 0, 0);
     audio.stopEngine();
@@ -1279,19 +1326,75 @@ export class Game {
     this.eyeHeight = lerp(this.eyeHeight, targetEye, 1 - Math.exp(-dt * 9));
     const moving = Math.hypot(this.moveInput.x, this.moveInput.y) > 0.3;
     this.sprintActive = this.sprint && this.stance === 'stand' && moving && this.axe.stamina > 4 && !this.gameOver && this.axe.state !== 'windup' && !this.vehicle;
-    const maxSpeed = (this.gameOver ? 0 : this.axe.state === 'windup' ? 2.0 : this.sprintActive ? 6.2 : 3.6) * stanceScale;
+
+    const pk = this.parkour;
+    const locked = pk.state === 'vault' || pk.state === 'mantle' || pk.state === 'climb';
+    const maxSpeed = (this.gameOver ? 0 : this.axe.state === 'windup' ? 2.0 : this.sprintActive ? 6.6 : 3.6) * stanceScale;
     const inp = this.moveInput;
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const wx = (-sin * inp.y + cos * inp.x) * maxSpeed;
     const wz = (-cos * inp.y - sin * inp.x) * maxSpeed;
-    const accel = 12;
-    this.vel.x = lerp(this.vel.x, wx, 1 - Math.exp(-accel * dt));
-    this.vel.z = lerp(this.vel.z, wz, 1 - Math.exp(-accel * dt));
-    this.pos.addScaledVector(this.vel, dt);
-    // коллизии с городом
-    this.city.collide(this.pos, 0.35);
-    this.city.keepOnLand(this.pos);
-    this.pos.y = lerp(this.pos.y, this.city.surfaceAt(this.pos.x, this.pos.z), 1 - Math.exp(-dt * 18));
+    const accel = locked ? 2 : this.onGround ? 12 : 3.4;
+    this.vel.x = lerp(this.vel.x, locked ? 0 : wx, 1 - Math.exp(-accel * dt));
+    this.vel.z = lerp(this.vel.z, locked ? 0 : wz, 1 - Math.exp(-accel * dt));
+    this.pos.x += this.vel.x * dt;
+    this.pos.z += this.vel.z * dt;
+
+    // коллизии: коробки, на которых стоим, стенами не считаются.
+    // Во время вольта/подъёма/лазания столкновения отключаем — иначе игрок
+    // будет выталкиваться из того самого препятствия, которое преодолевает.
+    if (!pk.active) {
+      this.city.collide(this.pos, 0.35, this.pos.y);
+      this.city.keepOnLand(this.pos);
+    }
+
+    // ── паркур: прыжки, вольты, стены, крыши ──────────────────────────
+    const jumpHeld = this.keys.has('Space') || this.jumpHeldBtn;
+    const result = pk.update(dt, {
+      pos: this.pos,
+      vel: this.vel,
+      yaw: this.yaw,
+      velY: this.velY,
+      feetY: this.pos.y,
+      onGround: this.onGround,
+      crouch: this.stance === 'crouch' || this.crouchBtn,
+      sprint: this.sprintActive,
+      jumpHeld,
+      jumpPressed: this.jumpQueued,
+      forward: inp.y,
+      stamina: this.axe.stamina,
+    }, this.city);
+
+    this.pos.copy(result.pos);
+    this.velY = result.velY;
+    this.onGround = result.onGround;
+    if (result.staminaCost > 0) this.axe.stamina = Math.max(0, this.axe.stamina - result.staminaCost);
+    if (result.fov) this.fovPunch = Math.max(this.fovPunch, result.fov / 40);
+    if (result.event) {
+      this.parkourEvent = result.event;
+      if (result.event === 'jump') audio.whoosh(0.35);
+      if (result.event === 'vault') { audio.whoosh(0.55); this.setLog('ВОЛЬТ через препятствие'); }
+      if (result.event === 'mantle') { audio.whoosh(0.6); this.setLog('Подтянулся на уступ'); }
+      if (result.event === 'grab') { audio.impact('blunt', 0.25); this.setLog('Зацепился за стену — держи прыжок, чтобы лезть'); }
+      if (result.event === 'slide') { audio.whoosh(0.4); this.setLog('Скольжение'); }
+      if (result.event === 'roll') { this.trauma = Math.min(1, this.trauma + 0.12); this.setLog('Перекат'); }
+      if (result.event === 'land') {
+        const impact = result.landImpact;
+        this.trauma = Math.min(1, this.trauma + Math.min(0.35, impact * 0.02));
+        this.landShake = Math.min(0.4, impact * 0.02);
+        if (impact > 5.5) this.particles.dustPuff(this.pos.clone(), 1);
+        if (impact > 13 && this.parkour.state !== 'slide') {
+          const dmg = (impact - 13) * 4.5;
+          this.damage(dmg);
+          this.onEvent?.({ type: 'hurt' });
+          this.setLog(`Удар о землю · −${Math.round(dmg)} HP`);
+          if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты разбился'); }
+        }
+      }
+    }
+    this.jumpQueued = false;
+    if (this.landShake > 0) this.landShake = Math.max(0, this.landShake - dt * 1.6);
+
     // не проходить сквозь NPC
     for (const n of this.npcs) {
       if (!n.alive) continue;
@@ -1303,14 +1406,43 @@ export class Game {
       }
     }
     const sp = Math.hypot(this.vel.x, this.vel.z);
-    if (sp > 0.3) {
+    if (sp > 0.3 && this.onGround) {
       this.bobPhase += dt * sp * 2.6;
       const s = Math.sin(this.bobPhase);
-      if (this.lastBobSin > 0 && s <= 0) audio.footstep();
-      if (this.lastBobSin < 0 && s >= 0) audio.footstep();
+      const surf = this.groundSurface();
+      if (this.lastBobSin > 0 && s <= 0) audio.footstep(surf);
+      if (this.lastBobSin < 0 && s >= 0) audio.footstep(surf);
       this.lastBobSin = s;
     }
   }
+
+  /** Материал под ногами — для звука шагов. */
+  private groundSurface(): 'concrete' | 'asphalt' | 'grass' | 'sand' | 'water' | 'metal' | 'wood' {
+    const x = this.pos.x, z = this.pos.z;
+    if (this.pos.y > 3.4) return 'concrete';
+    if (x > BEACH_START) return 'sand';
+    if (this.city.blockedAt(x, z, 0.1) && this.onGround) return 'concrete';
+    return 'asphalt';
+  }
+
+  /** Кнопка прыжка с тача. */
+  jump() {
+    if (this.vehicle || this.gameOver) return;
+    this.jumpQueued = true;
+    if (this.onGround) {
+      const climbing = this.parkour.state === 'climb' || this.parkour.state === 'wallrun';
+      if (!climbing) {
+        this.velY = 7.3;
+        this.onGround = false;
+        this.parkourEvent = 'jump';
+        this.parkour.cancel();
+        audio.whoosh(0.34);
+        this.axe.stamina = Math.max(0, this.axe.stamina - 2.4);
+      }
+    }
+  }
+  jumpHeldBtn = false;
+  crouchBtn = false;
 
   private restrictCamera(origin: THREE.Vector3, target: THREE.Vector3) {
     const length = origin.distanceTo(target);
@@ -1623,6 +1755,120 @@ export class Game {
     this.axe.applyContact({ material: 'wood', depth, stuck: false, bounce: 0.05, hitstop: 0.07 * (0.5 + depth), attachTo: null, pullResist: 1.4 });
   }
 
+  /** Урон игроку с учётом брони. */
+  damage(amount: number) {
+    let n = amount;
+    if (this.armor > 0) {
+      const absorb = Math.min(this.armor, n * 0.7);
+      this.armor = Math.max(0, this.armor - absorb);
+      n -= absorb;
+    }
+    this.hp = Math.max(0, this.hp - n);
+    this.trauma = Math.min(1, this.trauma + n * 0.006);
+  }
+
+  // ================= МАГАЗИН =================
+  shopBuy(id: string): { ok: boolean; msg: string } {
+    const item = SHOP_BY_ID.get(id);
+    if (!item) return { ok: false, msg: 'Товар не найден' };
+    if (item.once && (this.owned.has(id) || this.upgrades.has(id))) return { ok: false, msg: 'Уже куплено' };
+    if (this.economy.total < item.price) return { ok: false, msg: `Не хватает $${Math.round(item.price - this.economy.total)}` };
+    if (!this.economy.spend(item.price, `Магазин · ${item.name}`)) return { ok: false, msg: 'Не хватает денег' };
+    let msg = `${item.name} — куплено`;
+
+    switch (id) {
+      case 'v_sedan': case 'v_van': case 'v_sport': case 'v_moto': case 'v_moto_pro': {
+        this.owned.add(id);
+        this.garage.push({ id, name: item.name, carKind: item.carKind!, paint: item.paint });
+        const car = this.spawnOwnedVehicle(item.carKind!, item.paint);
+        msg = car ? `${item.name} ждёт рядом` : `${item.name} в гараже — вызови из телефона`;
+        break;
+      }
+      case 'w_shotgun':
+        this.owned.add(id);
+        this.shotgun.reserve += 24;
+        msg = 'Дробовик и картечь в руках';
+        break;
+      case 'u_suppressor':
+        this.upgrades.add(id);
+        this.pistol.suppressed = true;
+        break;
+      case 'u_extmag':
+        this.upgrades.add(id);
+        this.pistol.magSize += 9;
+        this.pistol.ammo = this.pistol.magSize;
+        break;
+      case 'u_heavy':
+        this.upgrades.add(id);
+        this.pistol.damageMul = 1.35;
+        this.pistol.pierceBonus = 1;
+        break;
+      case 'u_laser':
+        this.upgrades.add(id);
+        this.pistol.spreadMul = 0.5;
+        break;
+      case 'u_recoil':
+        this.upgrades.add(id);
+        this.pistol.recoilMul = 0.45;
+        break;
+      case 'u_buckshot':
+        this.upgrades.add(id);
+        this.shotgun.damageMul = 1.3;
+        this.shotgun.spreadMul = 0.82;
+        break;
+      case 'u_armor2':
+        this.upgrades.add(id);
+        this.maxArmor = 160;
+        this.armor = this.maxArmor;
+        break;
+      case 'm_medkit':
+        this.hp = Math.min(100, this.hp + (this.perks.has('medic') ? 80 : 60));
+        msg = 'Здоровье восстановлено';
+        break;
+      case 'm_armor':
+        this.armor = Math.min(this.maxArmor, this.armor + (item.amount ?? 45));
+        msg = `Броня ${Math.round(this.armor)}/${this.maxArmor}`;
+        break;
+      default:
+        if (item.weapon === 'pistol') { this.pistol.reserve += item.amount ?? 0; msg = `Патроны 9мм +${item.amount}`; }
+        else if (item.weapon === 'shotgun') { this.shotgun.reserve += item.amount ?? 0; msg = `Картечь +${item.amount}`; }
+        break;
+    }
+    this.setLog(msg);
+    this.notify('Магазин', msg);
+    this.onWallet?.();
+    return { ok: true, msg };
+  }
+
+  /** Вызвать купленный транспорт к игроку. */
+  callVehicle(id: string): boolean {
+    const g = this.garage.find((v) => v.id === id);
+    if (!g) return false;
+    const car = this.spawnOwnedVehicle(g.carKind, g.paint);
+    this.setLog(car ? `${g.name} подъехал` : 'Нет места для парковки');
+    return !!car;
+  }
+
+  private spawnOwnedVehicle(kind: CarKind, paint?: number): Car | null {
+    const base = this.pos;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 + this.yaw;
+      const r = 7 + i * 0.8;
+      const gx = Math.round((base.x + Math.cos(a) * r) / BLOCK) * BLOCK;
+      const gz = Math.round((base.z + Math.sin(a) * r) / BLOCK) * BLOCK;
+      const alongX = Math.abs(base.x - gx) <= Math.abs(base.z - gz);
+      const x = alongX ? gx : base.x + Math.cos(a) * r;
+      const z = alongX ? base.z + Math.sin(a) * r : gz;
+      if (Math.abs(x) > BOUNDS || Math.abs(z) > BOUNDS) continue;
+      if (this.city.blockedAt(x, z, 1.4)) continue;
+      if (this.city.collide(new THREE.Vector3(x, 0, z), 1.6) !== null) continue;
+      const car = this.traffic.spawn(kind, x, z, Math.atan2(base.x - x, base.z - z), false, paint);
+      car.isPlayer = false;
+      return car;
+    }
+    return null;
+  }
+
   private checkPickups() {
     for (const p of this.items.list) {
       if (p.taken) continue;
@@ -1864,6 +2110,16 @@ export class Game {
   }
 
   // ================= пули =================
+  /** Вспышка у дула + вылет гильзы. */
+  private muzzleFlash(muzzle: THREE.Object3D, power: number, shells: number) {
+    const p = muzzle.getWorldPosition(new THREE.Vector3());
+    const dir = this.camera.getWorldDirection(new THREE.Vector3());
+    this.ballistics.muzzle(p, power);
+    this.radio.punch(0.35 + power * 0.15);
+    for (let i = 0; i < shells; i++) this.ballistics.casing(p, dir);
+    this.trauma = Math.min(1, this.trauma + 0.05 * power);
+  }
+
   private updateBullets(dt: number) {
     this.updateBulletList(this.pistol.bullets, dt);
     this.updateBulletList(this.shotgun.pellets as unknown as { pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; traveled: number }[], dt);
@@ -1879,7 +2135,7 @@ export class Game {
     }
   }
 
-  private updateBulletList(bullets: { pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; traveled: number }[], dt: number) {
+  private updateBulletList(bullets: { pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; traveled: number; pierce?: number }[], dt: number) {
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
       const step = b.vel.clone().multiplyScalar(dt);
@@ -1982,7 +2238,16 @@ export class Game {
       }
 
       if (hitPoint && hitKind) {
-        this.bulletImpact(hitPoint, hitKind, hitNpc, hitPart, b.dmg);
+        const dirN = b.vel.clone().normalize();
+        this.bulletImpact(hitPoint, hitKind, hitNpc, hitPart, b.dmg, dirN);
+        // тяжёлая пуля пробивает тело насквозь с потерей энергии
+        const canPierce = (hitKind === 'npc' || hitKind === 'world') && (b.pierce ?? 0) > 0;
+        if (canPierce && b.traveled < 90) {
+          b.pierce = (b.pierce ?? 0) - 1;
+          b.dmg *= 0.62;
+          b.pos.copy(hitPoint).addScaledVector(dirN, 0.42);
+          continue;
+        }
         bullets.splice(i, 1);
         tr.visible = false;
         continue;
@@ -2001,29 +2266,41 @@ export class Game {
     }
   }
 
-  private bulletImpact(p: THREE.Vector3, kind: 'npc' | 'world' | 'ground' | 'car', npc: Npc | null, part: PartName, dmg: number) {
+  private bulletImpact(p: THREE.Vector3, kind: 'npc' | 'world' | 'ground' | 'car', npc: Npc | null, part: PartName, dmg: number, dir = new THREE.Vector3(0, 0, -1)) {
+    const normal = kind === 'ground' ? new THREE.Vector3(0, 1, 0) : dir.clone().negate();
+    this.hitMarker = 1;
+    this.hitMarkerHead = part === 'head';
     if (kind === 'npc' && !npc) {
       // попадание по полицейскому
       for (const o of this.police.officers) {
         if (o.state === 'dead') continue;
         if (Math.hypot(o.pos.x - p.x, o.pos.z - p.z) < 1.2) {
-          this.hitOfficer(o, dmg, new THREE.Vector3(0, 0, 1));
-          this.particles.bloodBurst(p, new THREE.Vector3(0, 1, 0), 0.6, 16);
+          this.hitOfficer(o, dmg, dir);
+          this.particles.bloodBurst(p, dir, 0.6, 16);
+          this.ballistics.impact('wall', p, normal, this.particles.sparkBurst.bind(this.particles), this.particles.dustPuff.bind(this.particles));
           break;
         }
       }
     } else if (kind === 'npc' && npc) {
       const human = npc.kind === 'human';
       let damage = dmg;
-      if (part === 'head') damage = 400;
-      else if (part === 'torso') damage = 55;
-      else damage = 22;
-      if (human) damage *= 0.6;
+      if (part === 'head') damage = 420;
+      else if (part === 'torso') damage = 58;
+      else damage = 24;
+      if (human) damage *= 0.62;
       npc.addWound(part, p, 0.03);
-      this.particles.bloodBurst(p, new THREE.Vector3(0, 1, 0), 0.8, 26);
-      npc.applyHit(part, damage, new THREE.Vector3(), 0.2);
+      // выходное отверстие и брызги по ходу пули
+      this.particles.bloodBurst(p, dir, 0.85, 30);
+      this.gore.jet(p, dir, part === 'head' ? 0.8 : 0.35);
+      npc.applyHit(part, damage, dir.clone().multiplyScalar(0.6), 0.2);
+      if (part === 'head') { this.gore.sever(npc, 'head', dir, 0.9); this.gore.slowmo(0.42, 0.3); }
       if (npc.hp <= 0) {
-        npc.kill(new THREE.Vector3(0, 0, 1));
+        // дробовик в упор отрывает конечность
+        if (dmg > 60 && Math.random() < 0.5) {
+          const limb: PartName = (['armL', 'armR', 'foreL', 'foreR', 'shinL', 'shinR'] as PartName[])[Math.floor(Math.random() * 6)];
+          this.gore.sever(npc, limb, dir, 1);
+        }
+        npc.kill(dir);
         this.registerKill(npc);
         if (npc.kind !== 'zombie') this.police.crime(0.6);
         this.setLog(npc.kind === 'zombie' ? (part === 'head' ? 'ВЫСТРЕЛ В ГОЛОВУ · УБИТ' : 'ЗОМБИ УБИТ') : 'ГРАЖДАНСКИЙ УБИТ');
@@ -2031,23 +2308,23 @@ export class Game {
       this.onEvent?.({ type: 'splash', amount: 0.6 });
       audio.impact(part === 'head' ? 'bone' : 'flesh', 0.9, 0.6);
     } else if (kind === 'car') {
-      this.particles.sparkBurst(p, new THREE.Vector3(0, 1, 0), 0.7);
+      const surface: Surface = 'metal';
+      this.ballistics.impact(surface, p, normal, this.particles.sparkBurst.bind(this.particles), this.particles.dustPuff.bind(this.particles));
       audio.impact('stone', 0.6);
       audio.ricochet();
       let best: Car | null = null; let near = 3.3;
       for (const c of this.traffic.cars) { const d = c.pos.distanceTo(p); if (d < near && !c.exploded) { near = d; best = c; } }
       if (best) { this.damageCar(best, dmg * 0.52, 'bullet'); this.setLog(best.hp <= 0 ? 'Машина подбита · пожар' : `кузов повреждён · ${Math.round(100 - best.hp)}%`); }
-
     } else if (kind === 'world') {
-      this.particles.sparkBurst(p, new THREE.Vector3(0, 1, 0), 0.5);
-      this.particles.dustPuff(p, 3);
+      this.ballistics.impact('wall', p, normal, this.particles.sparkBurst.bind(this.particles), this.particles.dustPuff.bind(this.particles));
       audio.impact('stone', 0.5);
+      if (Math.random() < 0.25) audio.ricochet();
     } else {
-      this.particles.dustPuff(p, 4);
-      this.particles.addDecal(p, 0.12);
+      this.ballistics.impact('ground', p, normal, this.particles.sparkBurst.bind(this.particles), this.particles.dustPuff.bind(this.particles));
       audio.impact('blunt', 0.4);
     }
   }
+
 
   private updateTraffic(dt: number) {
     this.trafficRefresh -= dt;
@@ -2079,19 +2356,18 @@ export class Game {
   // ================= NPC =================
   private spawnNpc() {
     const p = this.pos;
+    const def = MODES[this.mode];
     const make = (sx: number, sz: number) => {
-      let zombieChance = clamp(0.1 + this.heat * 0.6 + this.dayNight.night * 0.25, 0, 0.85);
-      if (this.mode === 'peace') zombieChance = 0;
-      if (this.mode === 'police') zombieChance = 0;
-      const kind = Math.random() < zombieChance ? 'zombie' : 'human';
-      let variant: 'normal' | 'runner' | 'brute' = 'normal';
-      if (kind === 'zombie') {
-        const r = Math.random();
-        if (r < 0.12 + this.heat * 0.12) variant = 'brute';
-        else if (r < 0.42) variant = 'runner';
-      }
-      const n = new Npc({ kind, pos: new THREE.Vector3(sx, this.city.surfaceAt(sx, sz), sz), variant,
+      const zombieChance = def.zombies
+        ? clamp(0.5 + this.heat * 0.16 + this.dayNight.night * 0.24, 0, 0.92)
+        : 0;
+      const kind: NpcKind = Math.random() < zombieChance ? 'zombie' : 'human';
+      const variant = pickVariant(kind === 'zombie' ? def.zombieMix : def.humanMix);
+      const n = new Npc({ kind, pos: new THREE.Vector3(sx, this.city.surfaceAt(sx, sz), sz), variant: variant as NpcVariant,
         onFall: (npc, dir) => this.physics.fall(npc, dir, npc.vel, npc.lastHitPart ?? undefined) });
+      n.passive = !def.resist;
+      n.attackPlayer = kind === 'human' && variant === 'bandit';
+      if (variant === 'bloodsucker') n.applyVariantLook(this.dayNight.night);
       this.scene.add(n.root);
       this.npcs.push(n);
     };
@@ -2199,7 +2475,7 @@ export class Game {
     }
     // пополнение населения
     this.spawnTimer -= dt;
-    const target = this.budget.npcTarget;
+    const target = Math.min(this.budget.npcTarget, MODES[this.mode].population);
     if (this.spawnTimer <= 0) {
       this.spawnTimer = 0.22;
       if (this.npcs.length < target) this.spawnNpc();
@@ -2226,7 +2502,7 @@ export class Game {
   private npcAttack(n: Npc) {
     if (this.gameOver || this.vehicle) return;
     const dmg = (n.crawler ? 8 : 13) * (this.perks.has('tough') ? 0.8 : 1);
-    this.hp = Math.max(0, this.hp - dmg);
+    this.damage(dmg);
     audio.zombieBite();
     audio.playerHurt();
     this.trauma = Math.min(1, this.trauma + 0.5);
@@ -2318,6 +2594,17 @@ export class Game {
 
     this.city.updateLights(dt);
     this.radio.setVolume(this.vehicle ? 0.8 : 0.42);
+    this.musicTimer -= dt;
+    if (this.musicTimer <= 0) {
+      this.musicTimer = 0.5;
+      let threats = 0;
+      for (const n of this.npcs) {
+        if (n.state === 'dead') continue;
+        if (n.position().distanceToSquared(this.pos) < 18 * 18) threats++;
+      }
+      const danger = clamp(this.police.stars / 4 + threats / 8 + (this.hp < 45 ? 0.25 : 0) + (this.gameOver ? 0 : 0), 0, 1);
+      this.radio.intensity = danger;
+    }
 
     // день/ночь
     this.dayNight.cloudCover = 0.36 + this.weather.intensity * 0.52;
@@ -2405,17 +2692,20 @@ export class Game {
       const spread = (this.pistol.ads > 0.5 ? 0.004 : 0.018) * (this.stance === 'stand' ? 1 : this.stance === 'crouch' ? 0.76 : 0.58);
       const r = this.pistol.tryFire(this.weaponView, spread);
       if (r.ok) {
-        audio.gunshot(1);
-        this.wildlife?.scare(this.pos, 45);
+        const sup = this.pistol.suppressed;
+        if (sup) audio.silenced(); else audio.gunshot(1, 0, 0);
+        audio.casing();
+        this.wildlife?.scare(this.pos, sup ? 14 : 45);
         audio.shellDrop();
+        this.muzzleFlash(this.pistol.muzzle, 1, 1);
         this.kickVelP -= 5.5;
         this.kickYaw += (Math.random() - 0.5) * 1.6;
         this.trauma = Math.min(1, this.trauma + 0.22);
         this.heat = Math.min(1, this.heat + 0.035);
         // выстрел в городе — преступление
-        this.police.crime(0.22);
-        this.witnessed(0.2);
-        this.noise(40);
+        this.police.crime(sup ? 0.04 : 0.22);
+        this.witnessed(sup ? 0.08 : 0.2);
+        this.noise(sup ? 12 : 40);
       } else if (r.reason === 'empty') {
         audio.dryFire();
         this.fireHold = false;
@@ -2428,6 +2718,7 @@ export class Game {
         audio.gunshot(1.4);
         this.wildlife?.scare(this.pos, 60);
         audio.shellDrop();
+        this.muzzleFlash(this.shotgun.muzzle, 1.5, 2);
         this.kickVelP -= 9;
         this.kickYaw += (Math.random() - 0.5) * 3;
         this.trauma = Math.min(1, this.trauma + 0.4);
@@ -2442,6 +2733,7 @@ export class Game {
       }
     }
     this.updateBullets(dt);
+    this.hitMarker = Math.max(0, this.hitMarker - dt * 3.6);
 
     // предметы
     this.items.update(dt);
@@ -2451,7 +2743,10 @@ export class Game {
     if (this.mode === 'peace' && this.police.wanted === 0) { /* спокойный город */ }
     this.police.update(dt, this.pos, (x, z) => this.city.blockedAt(x, z, 0.6), (from, dir) => {
       if (this.gameOver) return;
-      audio.gunshot(0.7);
+      const ddx = from.x - this.pos.x, ddz = from.z - this.pos.z;
+      const dist0 = Math.max(0.001, Math.hypot(ddx, ddz));
+      const lateral = (ddx * Math.cos(this.yaw) - ddz * Math.sin(this.yaw)) / dist0;
+      audio.gunshot(0.7, lateral, dist0);
       // шанс попасть по игроку
       const dist = from.distanceTo(this.pos);
       const hitChance = clamp(0.55 - dist * 0.012, 0.08, 0.5);
@@ -2462,11 +2757,13 @@ export class Game {
       tracer.lookAt(from.clone().addScaledVector(dir, 12));
       (tracer.material as THREE.MeshBasicMaterial).opacity = 0.8;
       if (Math.random() < hitChance) {
-        this.hp = Math.max(0, this.hp - 7);
+        this.damage(7);
         this.trauma = Math.min(1, this.trauma + 0.3);
         this.onEvent?.({ type: 'hurt' });
         this.onEvent?.({ type: 'splash', amount: 0.3 });
         if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты убит полицией'); }
+      } else {
+        audio.whizz();
       }
     });
     this.wanted = this.police.stars;
@@ -2487,7 +2784,7 @@ export class Game {
         (tracer.material as THREE.MeshBasicMaterial).opacity = 0.85;
         const dist = from.distanceTo(this.pos);
         if (Math.random() < clamp(0.4 - dist * 0.004, 0.05, 0.32) && !this.vehicle) {
-          this.hp = Math.max(0, this.hp - 8);
+          this.damage(8);
           this.trauma = Math.min(1, this.trauma + 0.35);
           this.onEvent?.({ type: 'hurt' });
           this.onEvent?.({ type: 'splash', amount: 0.25 });
@@ -2580,7 +2877,7 @@ export class Game {
       const d = this.pos.distanceTo(fire.pos);
       if (d < 4.8 && !this.vehicle) {
         const damage = dt * (7.5 * (1 - d / 4.8) + 1.2) * fire.intensity;
-        this.hp = Math.max(0, this.hp - damage);
+        this.damage(damage);
         if (Math.random() < dt * 4) this.onEvent?.({ type: 'hurt' });
         if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты погиб в огне'); }
       }
@@ -2596,6 +2893,7 @@ export class Game {
 
     this.physics.step(dt);
     this.particles.update(dt);
+    this.ballistics.update(dt);
 
     // «жар» растёт со временем и от выстрелов
     this.heat = Math.min(1, this.heat + dt * 0.006);
@@ -2701,29 +2999,56 @@ export class Game {
         molotovs: this.molotovs,
         grenades: this.grenades,
         throwKind: this.throwKind,
+        hitMarker: this.hitMarker,
+        hitHead: this.hitMarkerHead,
+        armor: this.armor,
+        armorMax: this.maxArmor,
+        parkour: this.parkour.state !== 'none' ? this.parkour.state : (this.onGround ? 'none' : 'air'),
+        height: Math.max(0, this.pos.y - this.city.surfaceAt(this.pos.x, this.pos.z)),
       });
     }
   }
 
   setMode(m: GameMode) {
+    if (m === this.mode) return;
     this.mode = m;
-    if (m === 'peace') {
-      // убрать зомби из города
-      for (let i = this.npcs.length - 1; i >= 0; i--) {
-        const n = this.npcs[i];
-        if (n.kind === 'zombie') {
-          this.physics.removeDoll(n.root);
+    const def = MODES[m];
+    this.police.hostile = def.police;
+    this.police.wanted = 0;
+    this.police.stars = 0;
+    this.police.heat = 0;
+    this.heat = 0;
+
+    // пересобрать население под режим
+    for (let i = this.npcs.length - 1; i >= 0; i--) {
+      const n = this.npcs[i];
+      const keep = def.zombies ? true : n.kind === 'human';
+      if (!keep || (def.zombies && n.kind === 'human' && n.variant === 'civil' && Math.random() < 0.5)) {
+        this.physics.removeDoll(n.root);
         this.scene.remove(n.root);
-          this.npcs.splice(i, 1);
-        }
+        this.npcs.splice(i, 1);
+      } else {
+        n.passive = !def.resist;
+        n.attackPlayer = n.kind === 'human' && n.variant === 'bandit';
       }
-      this.police.wanted = 0;
-      this.heat = 0;
     }
-    if (m === 'police') {
-      this.police.crime(1.2);
+    if (def.zombies) {
+      // заражённые уже на улицах
+      for (let i = 0; i < 12; i++) this.spawnNpc();
     }
-    this.setLog(m === 'peace' ? 'Мирный режим: в городе только люди' : m === 'police' ? 'Полицейская смена: нарушитель в городе' : 'Зомби-апокалипсис');
+    // атмосфера режима
+    if (m === 'zombie') {
+      this.dayNight.setTime(20.6);
+      this.setWeather('auto');
+      this.radio.setStation('dark');
+    } else if (m === 'peace') {
+      this.setWeather('clear');
+      this.radio.setStation('lofi');
+    } else {
+      this.radio.setStation('synth');
+    }
+    this.setLog(def.hint);
+    this.onEvent?.({ type: 'log', text: def.hint });
   }
 
   setQuality(q: Quality) {
@@ -2748,6 +3073,8 @@ export class Game {
   }
 
   restart() {
+    this.parkour.cancel();
+    this.velY = 0; this.onGround = true;
     for (const n of this.npcs) this.scene.remove(n.root);
     this.npcs = [];
     this.physics.clear();

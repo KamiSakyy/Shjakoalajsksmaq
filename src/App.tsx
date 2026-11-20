@@ -22,13 +22,13 @@ const initialHud: HudState = {
   photos: 0, heliActive: false, tankActive: false, nearLoot: false, robbed: 0, qualityTier: 'Авто', fpsScale: 100,
   combo: 0, comboTimer: 0, bloodScreen: 0, killCam: 0,
   packages: 0, packagesTotal: 0, raceActive: false, raceGate: '', raceTime: 0, interact: null, skirt: 'stand',
-  molotovs: 3, grenades: 2, throwKind: 'molotov',
+  molotovs: 3, grenades: 2, throwKind: 'molotov', parkour: 'none', height: 0, hitMarker: 0, hitHead: false, armor: 0, armorMax: 100,
 };
 type Panel = 'settings' | 'controls' | 'characters' | 'about' | 'map' | null;
 const modes: { id: GameMode; name: string; text: string; number: string }[] = [
-  { id: 'horror', name: 'Выживание', text: 'Люди, заражённые и город, который не прощает ошибок.', number: '01' },
-  { id: 'peace', name: 'Мирный город', text: 'Без зомби. Исследуй улицы, встречай людей, садись за руль.', number: '02' },
-  { id: 'police', name: 'Вне закона', text: 'Город без заражённых. Полиция уже ищет тебя.', number: '03' },
+  { id: 'peace', name: 'Мирный режим', text: 'Только люди. Полиция не гоняется, никто не сопротивляется — можно спокойно убивать.', number: '01' },
+  { id: 'normal', name: 'Обычный режим', text: 'Как во всех GTA: живой город, розыск, погони и перестрелки.', number: '02' },
+  { id: 'zombie', name: 'Зомби-апокалипсис', text: 'Ходоки, бегуны, прыгуны, кровососы. Люди-сталкеры и группировки — как в «Зове Припяти».', number: '03' },
 ];
 
 function Icon({ name, size = 20 }: { name: 'arrow' | 'settings' | 'sound' | 'mute' | 'close' | 'pause' | 'play' | 'axe' | 'full' | 'exitfull' | 'radio' | 'phone'; size?: number }) {
@@ -69,7 +69,7 @@ export default function App() {
     } catch { /* Session storage can be unavailable in embedded browsers. */ }
     return null;
   });
-  const [mode, setMode] = useState<GameMode>('horror');
+  const [mode, setMode] = useState<GameMode>('normal');
   const [quality, setQuality] = useState<Quality>('auto');
   const [phone, setPhone] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
