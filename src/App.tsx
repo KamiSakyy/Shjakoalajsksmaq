@@ -10,6 +10,7 @@ import type { Point } from './game/city-plan';
 import { LoadingScreen, loadingTips } from './components/LoadingScreen';
 import { Phone } from './components/Phone';
 import { RELEASE_NOTES } from './game/release-notes';
+import { WORLD_SEED, worldSignature } from './game/worldgen';
 
 const initialHud: HudState = {
   hp: 100, stamina: 100, sharpness: 1, kills: 0, charge: 0, overcharge: 0, axeState: 'idle', pullProgress: 0,
@@ -23,8 +24,11 @@ const initialHud: HudState = {
   combo: 0, comboTimer: 0, bloodScreen: 0, killCam: 0,
   packages: 0, packagesTotal: 0, raceActive: false, raceGate: '', raceTime: 0, interact: null, skirt: 'stand',
   molotovs: 3, grenades: 2, throwKind: 'molotov', parkour: 'none', height: 0, hitMarker: 0, hitHead: false, armor: 0, armorMax: 100,
+  mode: 'normal', peers: 0, world: '00000000', phoneOpen: false,
 };
 type Panel = 'settings' | 'controls' | 'characters' | 'about' | 'map' | null;
+const WORLD_SIG = worldSignature({ seed: WORLD_SEED, v: 3 });
+
 const modes: { id: GameMode; name: string; text: string; number: string }[] = [
   { id: 'peace', name: 'Мирный режим', text: 'Только люди. Полиция не гоняется, никто не сопротивляется — можно спокойно убивать.', number: '01' },
   { id: 'normal', name: 'Обычный режим', text: 'Как во всех GTA: живой город, розыск, погони и перестрелки.', number: '02' },
@@ -131,6 +135,9 @@ export default function App() {
     if (audio.ctx && audio.master) audio.master.gain.setTargetAtTime(muted || paused || panel ? 0 : 0.7, audio.ctx.currentTime, 0.15);
     if (panel) dialogRef.current?.focus();
   }, [paused, panel, muted, phone]);
+
+  // телефон поднимается в руке, пока открыт интерфейс
+  useEffect(() => { game?.setPhoneOpen(phone); }, [phone, game]);
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
@@ -278,6 +285,7 @@ export default function App() {
         <div className="launch-row"><button className="launch-button" onClick={start} disabled={loading}><span>{loading ? 'ГОТОВИМ ГОРОД' : 'ВОЙТИ В ГОРОД'}</span>{loading ? <span className="loading-ring" /> : <Icon name="arrow" size={25} />}</button><button className="launch-settings" onClick={() => setPanel('map')} aria-label="Карта города"><MapIcon name="map" size={19} /><span>Карта города</span></button></div>
         {error && <p className="launch-error" role="alert">{error}</p>}
         <p className="platform-hint"><span className="key-cap">W A S D</span> или сенсорное управление <span className="hint-dot">/</span> Android · ПК</p>
+        <p className="world-note">МИР <b>#{WORLD_SIG}</b> · СТАТИЧНЫЙ, ОДИН ДЛЯ ВСЕХ · ГОТОВ К ОНЛАЙНУ{hud.peers > 0 ? ` · В СЕТИ ${hud.peers}` : ''}</p>
       </section>
       <footer className="menu-footer"><div><span className="live-indicator" /> ОДИНОЧНАЯ ИГРА <span className="footer-slash">/</span> WEST COAST, 2026</div><div className="footer-right"><button onClick={() => setPanel('about')}>Об игре</button><button className="sound-switch" onClick={() => setMuted(m => !m)} aria-label={muted ? 'Включить звук' : 'Выключить звук'}><Icon name={muted ? 'mute' : 'sound'} size={17} /><span>{muted ? 'ЗВУК ВЫКЛ.' : 'ЗВУК ВКЛ.'}</span></button></div></footer>
     </main>}
@@ -318,7 +326,7 @@ export default function App() {
           <div className="guide-row"><strong>За рулём</strong><p><kbd>F</kbd> сесть / выйти. Экранные кнопки: газ, тормоз и руль. Удерживай тормоз на месте для заднего хода. <kbd>Space</kbd> ручник. <kbd>C</kbd> меняет ракурс камеры.</p></div>
           <div className="guide-row"><strong>Стойка и прицел</strong><p>Кнопки «Присесть» и «Ползти» меняют силуэт и точность. Прицел включается одним нажатием, повторное нажатие выключает его. <kbd>C</kbd> переключает камеру, <kbd>Esc</kbd> ставит паузу.</p></div><div className="guide-row"><strong>Огонь и службы</strong><p>Подбей двигатель машины. При возгорании уходи: возможен взрыв. Пожарная машина тушит огонь, скорая помогает раненым.</p></div>
         </div>}
-        {panel === 'about' && <div className="dialog-body about-copy"><p>ТОПОР.НОЧЬ: «Район Пасифик» — релизная браузерная 3D-песочница. 144 квартала, 15 заведений, карта атласа, трафик, пешеходы, полиция, пожарная и скорая помощь, огонь, взрывы, погода и физика персонажей.</p><div className="release-head"><b>РЕЛИЗНОЕ ОБНОВЛЕНИЕ</b><span>{RELEASE_NOTES.reduce((n, g) => n + g.items.length, 0)} улучшений</span></div><div className="release-notes">{RELEASE_NOTES.map(group => <section key={group.title}><h4>{group.title}</h4><ul>{group.items.map(item => <li key={item}>{item}</li>)}</ul></section>)}</div><p className="credits">Модель головы: <a href="https://www.triplegangers.com" target="_blank" rel="noreferrer">Lee Perry-Smith / Infinite-Realities</a>, CC BY 3.0. Текстуры асфальта и плитки: Poly Haven, CC0. Иллюстрации меню — художественные, не скриншоты игры.</p></div>}
+        {panel === 'about' && <div className="dialog-body about-copy"><p>ТОПОР.НОЧЬ: «Район Пасифик» — релизная браузерная 3D-песочница. 144 квартала, 15 заведений, карта атласа, трафик, пешеходы, полиция, пожарная и скорая помощь, огонь, взрывы, погода и физика персонажей.</p><p>Мир статичный и детерминированный: подпись <b>#{WORLD_SIG}</b> одинакова у всех запусков и у всех игроков, поэтому город можно синхронизировать по сети. Снимок состояния — 90 байт на игрока при 20 Гц.</p><div className="release-head"><b>РЕЛИЗНОЕ ОБНОВЛЕНИЕ</b><span>{RELEASE_NOTES.reduce((n, g) => n + g.items.length, 0)} улучшений</span></div><div className="release-notes">{RELEASE_NOTES.map(group => <section key={group.title}><h4>{group.title}</h4><ul>{group.items.map(item => <li key={item}>{item}</li>)}</ul></section>)}</div><p className="credits">Модель головы: <a href="https://www.triplegangers.com" target="_blank" rel="noreferrer">Lee Perry-Smith / Infinite-Realities</a>, CC BY 3.0. Текстуры асфальта и плитки: Poly Haven, CC0. Иллюстрации меню — художественные, не скриншоты игры.</p></div>}
       </div>
     </div>}
   </div>;

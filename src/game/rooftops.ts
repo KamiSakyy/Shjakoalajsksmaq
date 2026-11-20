@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import type { Box3 } from './city';
+import { worldRng } from './worldgen';
+/** Детерминированный поток «roofs»: мир одинаков у всех и при каждом запуске. */
+const rnd = worldRng('roofs');
 
 /**
  * Жизнь на крышах. Город теперь можно штурмовать по стенам, и наверху не должно быть
@@ -22,7 +25,7 @@ export class RooftopLife {
     }
     // перемешать и оставить нужное число
     for (let i = roofs.length - 1; i > 0; i--) {
-      const j = (Math.random() * (i + 1)) | 0;
+      const j = (rnd() * (i + 1)) | 0;
       [roofs[i], roofs[j]] = [roofs[j], roofs[i]];
     }
     const chosen = roofs.slice(0, roofCap);
@@ -42,22 +45,22 @@ export class RooftopLife {
       const rx = (w / 2 - inner), rz = (d / 2 - inner);
       if (rx < 1.2 || rz < 1.2) continue;
       const spot = () => ({
-        x: cx + (Math.random() * 2 - 1) * rx,
-        z: cz + (Math.random() * 2 - 1) * rz,
+        x: cx + (rnd() * 2 - 1) * rx,
+        z: cz + (rnd() * 2 - 1) * rz,
       });
-      const n = 2 + ((Math.random() * 4) | 0);
+      const n = 2 + ((rnd() * 4) | 0);
       for (let i = 0; i < n; i++) {
         const p = spot();
-        const roll = Math.random();
-        if (roll < 0.4) acPos.push({ ...p, y, rot: Math.random() * Math.PI });
-        else if (roll < 0.55) tankPos.push({ ...p, y, s: 0.85 + Math.random() * 0.35 });
-        else if (roll < 0.75) ventPos.push({ ...p, y, h: 0.5 + Math.random() * 0.6 });
-        else if (roll < 0.88) panelPos.push({ ...p, y, rot: (Math.random() - 0.5) * 0.4 });
-        else hatchPos.push({ ...p, y, rot: Math.random() * Math.PI });
+        const roll = rnd();
+        if (roll < 0.4) acPos.push({ ...p, y, rot: rnd() * Math.PI });
+        else if (roll < 0.55) tankPos.push({ ...p, y, s: 0.85 + rnd() * 0.35 });
+        else if (roll < 0.75) ventPos.push({ ...p, y, h: 0.5 + rnd() * 0.6 });
+        else if (roll < 0.88) panelPos.push({ ...p, y, rot: (rnd() - 0.5) * 0.4 });
+        else hatchPos.push({ ...p, y, rot: rnd() * Math.PI });
       }
-      if (Math.random() < 0.5) {
+      if (rnd() < 0.5) {
         const p = spot();
-        antPos.push({ ...p, y, h: 1.6 + Math.random() * 2.6 });
+        antPos.push({ ...p, y, h: 1.6 + rnd() * 2.6 });
       }
     }
 

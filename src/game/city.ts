@@ -8,6 +8,9 @@ import { BEACH_START, beachHeight, shoreX } from './ocean';
 import { bridgeY } from './miami';
 import { DistrictVisuals } from './district-visuals';
 import { addLandmarkStructures } from './landmarks';
+import { worldRng } from './worldgen';
+/** Детерминированный поток «city»: мир одинаков у всех и при каждом запуске. */
+const rnd = worldRng('city');
 export { BLOCK, BOUNDS, GRID, ROAD_W, WALK_W } from './city-plan';
 
 export interface Circle { x: number; z: number; r: number; disabled?: boolean }
@@ -28,7 +31,7 @@ function canvasTex(size: number, draw: (ctx: CanvasRenderingContext2D, s: number
   return t;
 }
 
-function rand(a: number, b: number) { return a + Math.random() * (b - a); }
+function rand(a: number, b: number) { return a + rnd() * (b - a); }
 
 // ---------------------------------------------------------------------------
 export class City {
@@ -125,8 +128,8 @@ export class City {
     this.facadeTex = canvasTex(512, (ctx, size) => {
       ctx.fillStyle = '#c6c2b8'; ctx.fillRect(0, 0, size, size);
       for (let i = 0; i < 20000; i++) {
-        ctx.fillStyle = `rgba(75,69,58,${Math.random() * 0.07})`;
-        ctx.fillRect(Math.random() * size, Math.random() * size, 1, 2);
+        ctx.fillStyle = `rgba(75,69,58,${rnd() * 0.07})`;
+        ctx.fillRect(rnd() * size, rnd() * size, 1, 2);
       }
       for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
         const xx = x * 64, yy = y * 64;
@@ -381,7 +384,7 @@ export class City {
       roofGeos.push(ac);
     }
     // стеклянный ризалт на крыше ( downtown )
-    if (downtown && Math.random() < 0.75) {
+    if (downtown && rnd() < 0.75) {
       const t = new THREE.BoxGeometry(w * 0.55, 8.4, d * 0.58);
       t.translate(x, h + 4.25, z);
       glassGeos.push(t);
@@ -508,10 +511,10 @@ export class City {
     const props: THREE.BufferGeometry[] = [];
     for (let i = -GRID; i <= GRID; i++) {
       for (let j = -GRID; j <= GRID; j++) {
-        if (Math.random() < 0.45) continue;
-        const x = i * BLOCK + (Math.random() < 0.5 ? -off - 1 : off + 1);
+        if (rnd() < 0.45) continue;
+        const x = i * BLOCK + (rnd() < 0.5 ? -off - 1 : off + 1);
         const z = j * BLOCK + rand(-20, 20);
-        const kind = Math.random();
+        const kind = rnd();
         if (kind < 0.4) {
           const g = new THREE.CylinderGeometry(0.28, 0.25, 0.9, 8);
           g.translate(x, 0.6, z);

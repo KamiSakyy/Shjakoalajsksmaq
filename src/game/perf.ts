@@ -134,7 +134,10 @@ export function budgetFor(quality: Quality, info = detectDevice()): GfxBudget {
 
   if (tier === 'high') {
     Object.assign(base, {
-      pixelRatio: Math.min(info.dpr, 1.85),
+      // На телефонах с плотным экраном выгоднее сглаживание, чем лишние пиксели:
+      // картинка заметно чище, а GPU-стоимость та же или ниже.
+      pixelRatio: Math.min(info.dpr, info.dpr < 1.6 ? 1.5 : 1.8),
+      antialias: info.dpr < 1.6 || info.cores >= 8,
       shadowMapSize: 1024,
       shadowRadius: 1.6,
       bloomScale: 0.42,
@@ -149,7 +152,6 @@ export function budgetFor(quality: Quality, info = detectDevice()): GfxBudget {
       canvasTexSize: 384,
       skidMarks: 220,
       farView: 430,
-      antialias: !info.mobile,
       fogDensity: 0.0021,
       maxDolls: 4,
     } satisfies Partial<GfxBudget>);

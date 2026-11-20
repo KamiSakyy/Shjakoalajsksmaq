@@ -95,7 +95,7 @@ export class Police {
     dt: number,
     playerPos: THREE.Vector3,
     blocked: (x: number, z: number) => boolean,
-    onShoot: (from: THREE.Vector3, dir: THREE.Vector3) => void,
+    onShoot: (from: THREE.Vector3, dir: THREE.Vector3, accuracy: number) => void,
     wet = 0,
   ) {
     this.blocked = blocked;
@@ -240,15 +240,20 @@ export class Police {
           const next = o.pos.clone().add(strafe);
           if (!blocked(next.x, next.z)) o.pos.copy(next);
         }
-        // стрельба очередями: 3 выстрела, пауза
+        // реакция: 0.3 с офицер целится, прежде чем жать на спуск
         o.fireT -= dt;
-        if (o.fireT <= 0 && o.burstT <= 0) {
+        if (o.aimT > 0.3 && o.fireT <= 0 && o.burstT <= 0) {
           const aimQ = 0.055 + (1.6 - Math.min(1.6, o.aimT)) * 0.055 + (wounded ? 0.035 : 0);
-          const dir = new THREE.Vector3().subVectors(playerPos.clone().setY(1.4), o.pos.clone().setY(1.4)).normalize();
+          const aimTarget = playerPos.clone().setY(1.15);
+          const dir = new THREE.Vector3().subVectors(aimTarget, o.pos.clone().setY(1.45)).normalize();
           dir.x += (Math.random() - 0.5) * aimQ * 2;
           dir.y += (Math.random() - 0.5) * aimQ;
           dir.z += (Math.random() - 0.5) * aimQ * 2;
-          onShoot(o.pos.clone().setY(1.4), dir.normalize());
+          // 0 — только заметил цель, 1 — уверенно ведёт огонь
+          const accuracy = THREE.MathUtils.clamp(o.aimT / 1.6, 0, 1);
+          onShoot(o.pos.clone().setY(1.45), dir.normalize(), accuracy);
+          // отдача внутри очереди: каждый следующий выстрел менее точный
+          o.aimT = Math.max(0, o.aimT - 0.14);
           o.burst--;
           if (o.burst <= 0) { o.burst = 3; o.burstT = 0.85 + Math.random() * 0.5; }
           else o.fireT = 0.11;

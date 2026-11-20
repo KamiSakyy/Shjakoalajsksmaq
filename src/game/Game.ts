@@ -40,6 +40,10 @@ import { Parkour } from './parkour';
 import { Ballistics, type Surface } from './ballistics';
 import { MODES, pickVariant, type GameMode } from './modes';
 import { RooftopLife } from './rooftops';
+import { freezeStatic } from './optimize';
+import { HandyPhone } from './phone-prop';
+import { NetClock, RemoteActors, encodeSnapshot, decodeSnapshot, type NetSnapshot } from './net';
+import { WORLD_SEED, worldSignature } from './worldgen';
 import { SHOP_BY_ID } from './shop';
 
 export type Weapon = 'axe' | 'pistol' | 'shotgun';
@@ -127,6 +131,10 @@ export interface HudState {
   hitHead: boolean;
   armor: number;
   armorMax: number;
+  mode: string;
+  peers: number;
+  world: string;
+  phoneOpen: boolean;
 }
 
 export type GameEvent =
@@ -256,6 +264,14 @@ export class Game {
   hitMarker = 0;
   private hitMarkerHead = false;
   private musicTimer = 0;
+  /** Онлайн: фиксированный тик и чужие игроки. */
+  phone = new HandyPhone(this.scene);
+  phoneOpen = false;
+  net = new NetClock();
+  remotes: RemoteActors | null = null;
+  netId = 'local';
+  netPeers = 0;
+  readonly worldSignature = worldSignature({ seed: WORLD_SEED, v: 3 });
   velY = 0;
   onGround = true;
   private jumpQueued = false;
@@ -351,6 +367,7 @@ export class Game {
   carCamDist = 7.2;
   driveBtn = { left: false, right: false, gas: false, brake: false };
   onFootCam = 0; // 0 — от первого лица, 1 — от третьего (за плечом)
+  private tpPos: THREE.Vector3 | null = null;
   spawnTimer = 0;
   fps = 60;
   private fpsAcc = performance.now();
@@ -391,15 +408,19 @@ export class Game {
     });
     this.renderer.setPixelRatio(this.budget.pixelRatio);
     this.renderer.shadowMap.enabled = this.budget.shadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = this.budget.tier === 'low' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.02;
+    this.renderer.toneMappingExposure = this.budget.tier === 'low' ? 1.06 : 1.02;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene.fog = new THREE.FogExp2(0x0a0d14, this.budget.fogDensity);
     this.camera = new THREE.PerspectiveCamera(this.baseFov, 1, 0.12, 1500);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera, this.weaponView);
     this.playerRig = createCharacter('human', 'normal', 4);
+    this.handWeapon.position.set(0, -0.29, 0.03);
+    this.handWeapon.rotation.set(-0.15, 0, 0);
+    this.handWeapon.visible = false;
+    this.playerRig.parts.foreR.add(this.handWeapon);
     this.playerRig.root.visible = false;
     this.scene.add(this.playerRig.root, this.torch, this.torchTarget, ...this.lampPool, ...this.carLampPool);
     this.carLampPool.forEach(l => { l.target = new THREE.Object3D(); this.scene.add(l.target); });
@@ -412,6 +433,10 @@ export class Game {
     this.city.reindex();
     // крыши: кондиционеры, баки, антенны — награда за паркур
     this.rooftops = new RooftopLife(this.scene, this.city.boxes, this.budget.tier);
+    // статичный мир собран один раз: замораживаем матрицы, чтобы не считать их каждый кадр
+    freezeStatic(this.city.group);
+    freezeStatic(this.rooftops.group);
+    freezeStatic(this.miami.group);
     this.traffic = new Traffic(this.scene);
     this.physics = new BodyPhysics(this.city.boxes);
     this.air = new AirSupport(this.scene);
@@ -548,6 +573,23 @@ export class Game {
     this.grade?.setSize(w, h);
     this.redraw = true;
   };
+
+  /**
+   * Авто-качество: если телефон стабильно не тянет, один раз переходим на
+   * «Эконом» — тени меньше, вода проще, NPC чуть меньше. Обратно не поднимаем,
+   * чтобы не прыгать туда-сюда.
+   */
+  private degraded = false;
+  private slowTime = 0;
+  private watchPerformance(dt: number) {
+    if (this.degraded || this.quality !== 'auto' || !this.device.mobile) return;
+    if (this.frameMs > 34) this.slowTime += dt; else this.slowTime = Math.max(0, this.slowTime - dt * 0.5);
+    if (this.slowTime > 6) {
+      this.degraded = true;
+      this.setQuality('low');
+      this.setLog('Графика адаптирована под устройство');
+    }
+  }
 
   /** Адаптивное разрешение: множитель к базовому DPR из бюджета устройства. */
   applyResolution(scale: number) {
@@ -815,7 +857,47 @@ export class Game {
     this.carYawOffset = this.carPitch = 0;
   }
 
-  toggleOnFootCam() { this.onFootCam = this.onFootCam === 0 ? 1 : 0; }
+  toggleOnFootCam() {
+    this.onFootCam = this.onFootCam === 0 ? 1 : 0;
+    this.tpPos = null;
+    this.syncHandWeapon();
+  }
+
+  /** Оружие, которое видно в руке в третьем лице. */
+  private handWeapon = new THREE.Group();
+  private handWeaponKind: Weapon | null = null;
+  private buildHandWeapon(kind: Weapon) {
+    this.handWeapon.clear();
+    const metal = new THREE.MeshStandardMaterial({ color: 0x2b2f34, roughness: 0.42, metalness: 0.75 });
+    const grip = new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.8 });
+    if (kind === 'shotgun') {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.03, 0.62, 10), metal);
+      barrel.rotation.x = Math.PI / 2;
+      barrel.position.z = 0.3;
+      const stock = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.09, 0.3), grip);
+      stock.position.z = -0.1;
+      const pump = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.07, 0.16), grip);
+      pump.position.z = 0.2;
+      this.handWeapon.add(barrel, stock, pump);
+    } else {
+      const slide = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.055, 0.22), metal);
+      slide.position.z = 0.08;
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.12, 0.055), grip);
+      handle.position.set(0, -0.075, -0.02);
+      handle.rotation.x = -0.22;
+      this.handWeapon.add(slide, handle);
+    }
+    this.handWeaponKind = kind;
+  }
+
+  private syncHandWeapon() {
+    const show = this.onFootCam === 1 && !this.vehicle && this.weapon !== 'axe' && !this.phoneOpen;
+    if (show && this.handWeaponKind !== this.weapon) this.buildHandWeapon(this.weapon);
+    this.handWeapon.visible = show;
+  }
+
+  /** Телефон в руке: интерфейс открыт → персонаж поднимает аппарат. */
+  setPhoneOpen(v: boolean) { this.phoneOpen = v; if (v) this.phone.tap(); }
 
   setDriveBtn(name: 'left' | 'right' | 'gas' | 'brake', on: boolean) {
     this.driveBtn[name] = on;
@@ -1456,6 +1538,27 @@ export class Game {
     if (clear < length) target.lerpVectors(origin, target, clear / length);
   }
 
+  /** Ближайшие фонари для пула точечных источников (O(n) вместо sort). */
+  private lampTmp: { p: THREE.Vector3; d: number }[] = [];
+  private pickNearestLamps(count: number) {
+    const best = this.lampTmp;
+    best.length = count;
+    for (let i = 0; i < count; i++) best[i] = { p: this.city.streetLightPos[i] ?? this.pos, d: Infinity };
+    let filled = 0;
+    for (const p of this.city.streetLightPos) {
+      const d = (p.x - this.pos.x) ** 2 + (p.z - this.pos.z) ** 2;
+      if (filled < count) {
+        best[filled] = { p, d };
+        filled++;
+        if (filled === count) best.sort((a, b) => a.d - b.d);
+      } else if (d < best[count - 1].d) {
+        best[count - 1] = { p, d };
+        best.sort((a, b) => a.d - b.d);
+      }
+    }
+    this.lampPool.forEach((light, i) => { if (best[i]) light.position.copy(best[i].p); });
+  }
+
   private updateCamera(dt: number) {
     const dyaw = this.yaw - this.prevYaw, dpitch = this.pitch - this.prevPitch;
     this.prevYaw = this.yaw; this.prevPitch = this.pitch;
@@ -1505,21 +1608,33 @@ export class Game {
     this.camLagYaw = lerp(this.camLagYaw, this.yaw, 1 - Math.exp(-dt * 30));
     this.camLagPitch = lerp(this.camLagPitch, this.pitch, 1 - Math.exp(-dt * 30));
     if (this.onFootCam === 1) {
-      // вид от третьего лица за плечом
+      // Вид от третьего лица за плечом: плавное следование, прицельная поза,
+      // отклонение в сторону при стрельбе и упор камеры в стены.
       const sp2 = Math.hypot(this.vel.x, this.vel.z);
       const yaw = this.camLagYaw;
-      const back = 2.9, up = 0.48, side = 0.65;
+      const aiming = (this.adsHold || this.axe.charge > 0.25) ? 1 : 0;
+      const back = 3.05 - aiming * 0.75;
+      const up = 0.52 - aiming * 0.12;
+      const side = 0.72 - aiming * 0.46;
       const px = this.pos.x + Math.sin(yaw) * back + Math.cos(yaw) * side;
       const pz = this.pos.z + Math.cos(yaw) * back - Math.sin(yaw) * side;
-      this.camera.position.set(px, this.pos.y + this.eyeHeight + up, pz);
-      this.restrictCamera(this.cameraAnchor.copy(this.pos).add(this.tmp.set(0, 1.42, 0)), this.camera.position);
+      const py = this.pos.y + this.eyeHeight + up;
+      if (!this.tpPos) this.tpPos = new THREE.Vector3(px, py, pz);
+      const k = 1 - Math.exp(-dt * (aiming ? 16 : 10));
+      this.tpPos.x += (px - this.tpPos.x) * k;
+      this.tpPos.y += (py - this.tpPos.y) * k;
+      this.tpPos.z += (pz - this.tpPos.z) * k;
+      this.camera.position.copy(this.tpPos);
+      // камера не проваливается в дома и не выходит за стену
+      this.restrictCamera(this.cameraAnchor.set(this.pos.x, this.pos.y + 1.42, this.pos.z), this.camera.position);
+      this.tpPos.copy(this.camera.position);
       this.camera.lookAt(
-        this.pos.x - Math.sin(yaw) * 3,
-        this.pos.y + this.eyeHeight - 0.25 + this.camLagPitch * 4,
-        this.pos.z - Math.cos(yaw) * 3
+        this.pos.x - Math.sin(yaw) * (3 + aiming * 6),
+        this.pos.y + this.eyeHeight - 0.25 + this.camLagPitch * 4 + aiming * 0.06,
+        this.pos.z - Math.cos(yaw) * (3 + aiming * 6)
       );
-      this.camera.rotation.z += Math.sin(this.bobPhase) * 0.012 * Math.min(1, sp2 / 3);
-      this.camera.fov = lerp(this.camera.fov, this.baseFov, 1 - Math.exp(-dt * 10));
+      this.camera.rotation.z += Math.sin(this.bobPhase) * 0.012 * Math.min(1, sp2 / 3) - this.parkour.roll * 0.5;
+      this.camera.fov = lerp(this.camera.fov, this.baseFov - aiming * 8, 1 - Math.exp(-dt * 10));
       this.camera.updateProjectionMatrix();
       return;
     }
@@ -2120,6 +2235,125 @@ export class Game {
     this.trauma = Math.min(1, this.trauma + 0.05 * power);
   }
 
+  /**
+   * Выстрел полицейского. Пуля не «прилипает» к игроку: считается реальная
+   * геометрия — движется ли цель, пригнулась ли, сидит ли в машине.
+   * По машине стреляют по кузову, а в салон залетает редко.
+   */
+  private officerShoot(from: THREE.Vector3, dir: THREE.Vector3, accuracy: number) {
+    if (this.gameOver) return;
+    const ddx = from.x - this.pos.x, ddz = from.z - this.pos.z;
+    const dist0 = Math.max(0.001, Math.hypot(ddx, ddz));
+    const lateral = (ddx * Math.cos(this.yaw) - ddz * Math.sin(this.yaw)) / dist0;
+    audio.gunshot(0.72, lateral, dist0);
+
+    const tracer = this.tracerPool[this.tracerIdx];
+    this.tracerIdx = (this.tracerIdx + 1) % this.tracerPool.length;
+    tracer.visible = true;
+    tracer.position.copy(from);
+    tracer.lookAt(from.clone().addScaledVector(dir, 12));
+    (tracer.material as THREE.MeshBasicMaterial).opacity = 0.8;
+
+    const car = this.vehicle;
+    // скорость цели и её силуэт
+    const speed = car ? Math.abs(car.vLong) : Math.hypot(this.vel.x, this.vel.z);
+    const exposure = this.stance === 'stand' ? 1 : this.stance === 'crouch' ? 0.74 : 0.5;
+    const range = clamp(1.28 - dist0 / 34, 0.14, 1);
+    const moving = 1 / (1 + speed * 0.055);
+    // офицер только что заметил цель — стреляет «в молоко»
+    // Первый выстрел почти всегда мимо: офицер ещё не поймал прицел.
+    const skill = 0.04 + accuracy * 0.5;          // 0.04…0.54 — первый выстрел почти всегда мимо
+    let hitChance = skill * range * exposure * moving * (this.parkour.state !== 'none' ? 0.7 : 1);
+
+    if (car) {
+      // машина — большая мишень: попадания идут в кузов
+      const bodyChance = clamp(0.55 + range * 0.35, 0.3, 0.92);
+      if (Math.random() < bodyChance) {
+        const dmg = 2.6 + Math.random() * 3.4;
+        this.damageCar(car, dmg, 'bullet');
+        const hit = car.pos.clone().addScaledVector(dir, -dist0 * 0.5).setY(0.75);
+        this.ballistics.impact('metal', hit, dir.clone().negate(), this.particles.sparkBurst.bind(this.particles), this.particles.dustPuff.bind(this.particles));
+        audio.impact('stone', 0.5);
+        if (Math.random() < 0.45) audio.ricochet();
+        this.trauma = Math.min(1, this.trauma + 0.12);
+        this.setLog('Попадание в кузов');
+      } else if (Math.random() < 0.16 * (0.4 + accuracy)) {
+        // редкий шанс, что пуля прошла в салон
+        hitChance = clamp(hitChance * 0.55, 0.02, 0.3);
+        if (Math.random() < hitChance) {
+          this.damage(5);
+          this.trauma = Math.min(1, this.trauma + 0.28);
+          this.onEvent?.({ type: 'hurt' });
+          this.onEvent?.({ type: 'splash', amount: 0.24 });
+          if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты убит полицией'); }
+        } else {
+          audio.whizz();
+          this.trauma = Math.min(1, this.trauma + 0.06);
+        }
+      } else {
+        audio.whizz();
+        this.particles.sparkBurst(car.pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * 2, 0.5, (Math.random() - 0.5) * 2)), dir, 0.4);
+      }
+      return;
+    }
+
+    if (Math.random() < hitChance) {
+      this.damage(7);
+      this.trauma = Math.min(1, this.trauma + 0.3);
+      this.onEvent?.({ type: 'hurt' });
+      this.onEvent?.({ type: 'splash', amount: 0.3 });
+      audio.impact('flesh', 0.6);
+      if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты убит полицией'); }
+    } else {
+      audio.whizz();
+      // пуля уходит в мир: искры и пыль рядом с игроком
+      const miss = this.pos.clone().addScaledVector(dir, dist0 * 0.85);
+      miss.x += (Math.random() - 0.5) * 2.4;
+      miss.z += (Math.random() - 0.5) * 2.4;
+      miss.y = Math.max(0.15, miss.y + (Math.random() - 0.6));
+      if (Math.random() < 0.5) this.particles.dustPuff(miss, 2);
+      else this.ballistics.hole(miss, dir.clone().negate(), 0.1, 'wall');
+    }
+  }
+
+  // ================= СЕТЬ =================
+  /** Текущее изменяемое состояние мира — то, что нужно гонять по сети. */
+  netSnapshot(): NetSnapshot {
+    const speed = this.vehicle ? Math.abs(this.vehicle.vLong) : Math.hypot(this.vel.x, this.vel.z);
+    return {
+      world: {
+        seed: WORLD_SEED, signature: this.worldSignature, mode: this.mode,
+        clock: this.dayNight.time, weather: this.weather.intensity,
+        wanted: this.police.stars, tick: this.net.tick,
+      },
+      actors: [{
+        id: this.netId, name: 'Ты',
+        x: this.pos.x, y: this.pos.y, z: this.pos.z,
+        yaw: this.yaw, pitch: this.pitch, speed, hp: this.hp,
+        flags: this.vehicle ? 1 : this.parkour.active ? 2 : this.stance !== 'stand' ? 3 : 0,
+      }],
+    };
+  }
+
+  /** Готовый кадр для отправки (WebSocket.send(game.netFrame())). */
+  netFrame(): string { return encodeSnapshot(this.netSnapshot()); }
+
+  /**
+   * Принять снимок от сервера. Мир сверяется по подписи: если версии разные,
+   * снимок отбрасывается, чтобы клиенты не разъехались по геометрии.
+   */
+  netIngest(raw: string, selfId = this.netId): boolean {
+    const snap = decodeSnapshot(raw);
+    if (!snap) return false;
+    if (snap.world.signature !== this.worldSignature) return false;
+    if (snap.world.mode !== this.mode) this.setMode(snap.world.mode);
+    this.dayNight.setTime(snap.world.clock);
+    if (!this.remotes) this.remotes = new RemoteActors(this.scene);
+    this.remotes.apply(snap, selfId);
+    this.netPeers = Math.max(0, this.remotes.count);
+    return true;
+  }
+
   private updateBullets(dt: number) {
     this.updateBulletList(this.pistol.bullets, dt);
     this.updateBulletList(this.shotgun.pellets as unknown as { pos: THREE.Vector3; vel: THREE.Vector3; life: number; dmg: number; traveled: number }[], dt);
@@ -2219,6 +2453,7 @@ export class Game {
       if (!hitPoint) {
         for (const box of this.city.boxes) {
           if (Math.abs((box.min.x + box.max.x) / 2 - p0.x) > 40) continue;
+          if (Math.abs((box.min.z + box.max.z) / 2 - p0.z) > 40) continue;
           const h = segAabb(p0, p1, box.min, box.max);
           if (h) { hitPoint = h; hitKind = 'world'; break; }
         }
@@ -2457,12 +2692,20 @@ export class Game {
     }
   }
 
+  private npcTick = 0;
   private updateNpcs(dt: number) {
     const camP = this.camera.position;
+    this.npcTick = (this.npcTick + 1) % 3;
     for (let i = this.npcs.length - 1; i >= 0; i--) {
       const n = this.npcs[i];
-      this.streetLife.walk(n, dt, this.traffic.cars, axis => this.city.isGreen(axis), p => this.city.blockedAt(p.x, p.z, .3));
-      const done = n.update(dt, this.pos, this.npcs, (p, r) => { this.cityCollide(p, r); this.city.keepOnLand(p); }, () => this.npcAttack(n));
+      const d2 = n.position().distanceToSquared(camP);
+      // LOD: далёкие персонажи обновляются в треть кадров — на Android это
+      // заметная экономия, а разницы в 60 метрах всё равно не видно.
+      const far = d2 > 56 * 56;
+      if (!far) this.streetLife.walk(n, dt, this.traffic.cars, axis => this.city.isGreen(axis), p => this.city.blockedAt(p.x, p.z, .3));
+      if (far && this.npcTick !== i % 3) continue;
+      const step = far ? dt * 3 : dt;
+      const done = n.update(step, this.pos, this.npcs, (p, r) => { this.cityCollide(p, r); this.city.keepOnLand(p); }, () => this.npcAttack(n));
       if (n.alive) n.root.position.y = this.city.surfaceAt(n.root.position.x, n.root.position.z);
       if (n.kind === 'zombie' && n.alive && n.wantsGroan()) audio.zombieGroan(clamp(n.position().distanceTo(camP) / 30, 0, 1));
       if (n.state === 'dead' && n.deadTime > 8 && this.axe.stuckData === n) this.axe.dropToWorld();
@@ -2541,6 +2784,7 @@ export class Game {
         this.frameMs = this.frameMs * 0.86 + Math.min(240, raw * 1000) * 0.14;
         const scale = this.adaptive.update(this.frameMs, dt);
         if (scale !== null) this.applyResolution(scale);
+        this.watchPerformance(dt);
       }
       if (this.composer && this.budget.bloom) this.composer.render();
       else this.renderer.render(this.scene, this.camera);
@@ -2588,9 +2832,11 @@ export class Game {
     const inVehicle = !!this.vehicle;
     const firstPerson = !inVehicle && this.onFootCam === 0;
     this.axe.setVisible(this.weapon === 'axe' && firstPerson);
-    this.pistol.group.visible = this.weapon === 'pistol' && firstPerson;
-    this.shotgun.group.visible = this.weapon === 'shotgun' && firstPerson;
+    const handsFree = !this.phoneOpen;
+    this.pistol.group.visible = this.weapon === 'pistol' && firstPerson && handsFree;
+    this.shotgun.group.visible = this.weapon === 'shotgun' && firstPerson && handsFree;
     this.playerRig.root.visible = !inVehicle && this.onFootCam === 1;
+    this.syncHandWeapon();
 
     this.city.updateLights(dt);
     this.radio.setVolume(this.vehicle ? 0.8 : 0.42);
@@ -2622,8 +2868,21 @@ export class Game {
     this.camera.updateMatrixWorld(true);
     // Combat transforms stay at the player when the visual camera is behind them.
     if (this.onFootCam === 1 && !inVehicle) {
-      this.weaponView.position.copy(this.pos).add(this.tmp.set(0, this.eyeHeight, 0));
-      this.weaponView.rotation.set(this.camLagPitch + this.kickPitch, this.camLagYaw + this.kickYaw, 0, 'YXZ');
+      // Стреляем из тела в точку, куда смотрит камера, иначе прицел «врёт»
+      // из-за смещения за плечо.
+      const dir = this.camera.getWorldDirection(this.tmp2);
+      let dist = 60;
+      for (let step = 4; step <= 60; step += 4) {
+        const sx = this.camera.position.x + dir.x * step;
+        const sz = this.camera.position.z + dir.z * step;
+        const sy = this.camera.position.y + dir.y * step;
+        if (this.city.blockedAt(sx, sz, 0.15) && sy < this.city.surfaceAt(sx, sz) + 3.4) { dist = step; break; }
+      }
+      const aim = this.tmp.copy(this.camera.position).addScaledVector(dir, dist);
+      this.weaponView.position.set(this.pos.x, this.pos.y + this.eyeHeight - 0.08, this.pos.z);
+      this.weaponView.lookAt(aim);
+      this.weaponView.rotation.x += this.kickPitch * 0.5;
+      this.weaponView.rotation.y += this.kickYaw * 0.5;
     } else {
       this.weaponView.position.copy(this.camera.position);
       this.weaponView.quaternion.copy(this.camera.quaternion);
@@ -2650,8 +2909,8 @@ export class Game {
     this.lampTimer -= dt;
     if (this.lampTimer < 0) {
       this.lampTimer = 0.33;
-      const lamps = [...this.city.streetLightPos].sort((a, b) => a.distanceToSquared(this.pos) - b.distanceToSquared(this.pos));
-      this.lampPool.forEach((light, i) => { if (lamps[i]) light.position.copy(lamps[i]); });
+      // ближайшие N фонарей одним проходом — без сортировки всего массива
+      this.pickNearestLamps(this.lampPool.length);
     }
     const lampPower = this.dayNight.night * (this.dayNight.sunOcclusion * 0.32 + 0.68);
     this.lampPool.forEach(l => { l.intensity = lampPower * 17; l.visible = this.dayNight.night > 0.037; });
@@ -2741,31 +3000,8 @@ export class Game {
 
     // полиция
     if (this.mode === 'peace' && this.police.wanted === 0) { /* спокойный город */ }
-    this.police.update(dt, this.pos, (x, z) => this.city.blockedAt(x, z, 0.6), (from, dir) => {
-      if (this.gameOver) return;
-      const ddx = from.x - this.pos.x, ddz = from.z - this.pos.z;
-      const dist0 = Math.max(0.001, Math.hypot(ddx, ddz));
-      const lateral = (ddx * Math.cos(this.yaw) - ddz * Math.sin(this.yaw)) / dist0;
-      audio.gunshot(0.7, lateral, dist0);
-      // шанс попасть по игроку
-      const dist = from.distanceTo(this.pos);
-      const hitChance = clamp(0.55 - dist * 0.012, 0.08, 0.5);
-      const tracer = this.tracerPool[this.tracerIdx];
-      this.tracerIdx = (this.tracerIdx + 1) % this.tracerPool.length;
-      tracer.visible = true;
-      tracer.position.copy(from);
-      tracer.lookAt(from.clone().addScaledVector(dir, 12));
-      (tracer.material as THREE.MeshBasicMaterial).opacity = 0.8;
-      if (Math.random() < hitChance) {
-        this.damage(7);
-        this.trauma = Math.min(1, this.trauma + 0.3);
-        this.onEvent?.({ type: 'hurt' });
-        this.onEvent?.({ type: 'splash', amount: 0.3 });
-        if (this.hp <= 0) { this.gameOver = true; this.setLog('Ты убит полицией'); }
-      } else {
-        audio.whizz();
-      }
-    });
+    this.police.update(dt, this.pos, (x, z) => this.city.blockedAt(x, z, 0.6),
+      (from, dir, accuracy) => this.officerShoot(from, dir, accuracy));
     this.wanted = this.police.stars;
 
     // вертолёт на 4 звезды, танк на 5
@@ -2894,6 +3130,16 @@ export class Game {
     this.physics.step(dt);
     this.particles.update(dt);
     this.ballistics.update(dt);
+    this.net.advance(dt);
+    this.remotes?.update(dt);
+    this.phone.update(dt, {
+      open: this.phoneOpen && !this.vehicle,
+      camera: this.camera,
+      hand: this.onFootCam === 1 ? this.playerRig.parts.foreR : null,
+      yaw: this.playerRig.root.rotation.y,
+      firstPerson: this.onFootCam === 0,
+      night: this.dayNight.night,
+    });
 
     // «жар» растёт со временем и от выстрелов
     this.heat = Math.min(1, this.heat + dt * 0.006);
@@ -3003,6 +3249,10 @@ export class Game {
         hitHead: this.hitMarkerHead,
         armor: this.armor,
         armorMax: this.maxArmor,
+        mode: this.mode,
+        peers: this.netPeers,
+        world: this.worldSignature,
+        phoneOpen: this.phoneOpen,
         parkour: this.parkour.state !== 'none' ? this.parkour.state : (this.onGround ? 'none' : 'air'),
         height: Math.max(0, this.pos.y - this.city.surfaceAt(this.pos.x, this.pos.z)),
       });

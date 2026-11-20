@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import type { Material } from './audio';
+import { worldRng } from './worldgen';
+/** Детерминированный поток «materials»: мир одинаков у всех и при каждом запуске. */
+const rnd = worldRng('materials');
 
 // Параметры сопротивления материалов — ядро реализма топора
 export interface MatProps {
@@ -37,11 +40,11 @@ function noiseFill(ctx: CanvasRenderingContext2D, s: number, base: [number, numb
   ctx.fillStyle = `rgb(${base[0]},${base[1]},${base[2]})`;
   ctx.fillRect(0, 0, s, s);
   for (let i = 0; i < count; i++) {
-    const v = (Math.random() - 0.5) * amp;
+    const v = (rnd() - 0.5) * amp;
     ctx.fillStyle = `rgb(${base[0] + v | 0},${base[1] + v | 0},${base[2] + v | 0})`;
-    const r = rMin + Math.random() * (rMax - rMin);
+    const r = rMin + rnd() * (rMax - rMin);
     ctx.beginPath();
-    ctx.arc(Math.random() * s, Math.random() * s, r, 0, Math.PI * 2);
+    ctx.arc(rnd() * s, rnd() * s, r, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -51,18 +54,18 @@ export function makeTextures() {
     noiseFill(ctx, s, [38, 34, 26], 40, 9000, 1, 5);
     // травинки / мусор
     for (let i = 0; i < 1500; i++) {
-      ctx.strokeStyle = `rgba(${40 + Math.random() * 30 | 0},${50 + Math.random() * 40 | 0},${20 + Math.random() * 20 | 0},0.7)`;
+      ctx.strokeStyle = `rgba(${40 + rnd() * 30 | 0},${50 + rnd() * 40 | 0},${20 + rnd() * 20 | 0},0.7)`;
       ctx.lineWidth = 1;
-      const x = Math.random() * s, y = Math.random() * s;
+      const x = rnd() * s, y = rnd() * s;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x + (Math.random() - 0.5) * 8, y - Math.random() * 8);
+      ctx.lineTo(x + (rnd() - 0.5) * 8, y - rnd() * 8);
       ctx.stroke();
     }
     for (let i = 0; i < 300; i++) {
-      ctx.fillStyle = `rgba(20,16,12,${0.3 + Math.random() * 0.4})`;
+      ctx.fillStyle = `rgba(20,16,12,${0.3 + rnd() * 0.4})`;
       ctx.beginPath();
-      ctx.ellipse(Math.random() * s, Math.random() * s, 3 + Math.random() * 12, 2 + Math.random() * 6, Math.random() * 3, 0, Math.PI * 2);
+      ctx.ellipse(rnd() * s, rnd() * s, 3 + rnd() * 12, 2 + rnd() * 6, rnd() * 3, 0, Math.PI * 2);
       ctx.fill();
     }
   }, 40);
@@ -70,12 +73,12 @@ export function makeTextures() {
   const bark = canvasTex(256, (ctx, s) => {
     noiseFill(ctx, s, [58, 44, 32], 36, 3000, 1, 3);
     for (let i = 0; i < 90; i++) {
-      ctx.strokeStyle = `rgba(${20 + Math.random() * 20 | 0},${14 + Math.random() * 14 | 0},10,${0.4 + Math.random() * 0.5})`;
-      ctx.lineWidth = 1 + Math.random() * 3;
-      const x = Math.random() * s;
+      ctx.strokeStyle = `rgba(${20 + rnd() * 20 | 0},${14 + rnd() * 14 | 0},10,${0.4 + rnd() * 0.5})`;
+      ctx.lineWidth = 1 + rnd() * 3;
+      const x = rnd() * s;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.bezierCurveTo(x + (Math.random() - 0.5) * 30, s * 0.3, x + (Math.random() - 0.5) * 30, s * 0.7, x + (Math.random() - 0.5) * 20, s);
+      ctx.bezierCurveTo(x + (rnd() - 0.5) * 30, s * 0.3, x + (rnd() - 0.5) * 30, s * 0.7, x + (rnd() - 0.5) * 20, s);
       ctx.stroke();
     }
   }, 1);
@@ -85,18 +88,18 @@ export function makeTextures() {
     noiseFill(ctx, s, [120, 122, 126], 30, 2500, 1, 2);
     // следы ковки / проката
     for (let i = 0; i < 400; i++) {
-      ctx.strokeStyle = `rgba(${80 + Math.random() * 100 | 0},${80 + Math.random() * 100 | 0},${85 + Math.random() * 100 | 0},0.35)`;
+      ctx.strokeStyle = `rgba(${80 + rnd() * 100 | 0},${80 + rnd() * 100 | 0},${85 + rnd() * 100 | 0},0.35)`;
       ctx.lineWidth = 1;
-      const y = Math.random() * s;
+      const y = rnd() * s;
       ctx.beginPath();
       ctx.moveTo(0, y);
-      ctx.lineTo(s, y + (Math.random() - 0.5) * 6);
+      ctx.lineTo(s, y + (rnd() - 0.5) * 6);
       ctx.stroke();
     }
     for (let i = 0; i < 60; i++) {
-      ctx.fillStyle = `rgba(60,45,35,${0.2 + Math.random() * 0.4})`;
+      ctx.fillStyle = `rgba(60,45,35,${0.2 + rnd() * 0.4})`;
       ctx.beginPath();
-      ctx.arc(Math.random() * s, Math.random() * s, 2 + Math.random() * 7, 0, Math.PI * 2);
+      ctx.arc(rnd() * s, rnd() * s, 2 + rnd() * 7, 0, Math.PI * 2);
       ctx.fill();
     }
   }, 1);
@@ -104,12 +107,12 @@ export function makeTextures() {
   const handleWood = canvasTex(256, (ctx, s) => {
     noiseFill(ctx, s, [128, 96, 60], 30, 2500, 1, 2);
     for (let i = 0; i < 120; i++) {
-      ctx.strokeStyle = `rgba(${70 + Math.random() * 40 | 0},${45 + Math.random() * 30 | 0},25,${0.3 + Math.random() * 0.4})`;
-      ctx.lineWidth = 1 + Math.random();
-      const x = Math.random() * s;
+      ctx.strokeStyle = `rgba(${70 + rnd() * 40 | 0},${45 + rnd() * 30 | 0},25,${0.3 + rnd() * 0.4})`;
+      ctx.lineWidth = 1 + rnd();
+      const x = rnd() * s;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x + (Math.random() - 0.5) * 10, s);
+      ctx.lineTo(x + (rnd() - 0.5) * 10, s);
       ctx.stroke();
     }
   }, 1);
@@ -119,15 +122,15 @@ export function makeTextures() {
     noiseFill(ctx, s, [112, 122, 96], 40, 4000, 1, 3);
     // вены, пятна гниения
     for (let i = 0; i < 40; i++) {
-      ctx.fillStyle = `rgba(${60 + Math.random() * 40 | 0},${30 + Math.random() * 30 | 0},${30 + Math.random() * 20 | 0},${0.25 + Math.random() * 0.35})`;
+      ctx.fillStyle = `rgba(${60 + rnd() * 40 | 0},${30 + rnd() * 30 | 0},${30 + rnd() * 20 | 0},${0.25 + rnd() * 0.35})`;
       ctx.beginPath();
-      ctx.ellipse(Math.random() * s, Math.random() * s, 5 + Math.random() * 20, 4 + Math.random() * 12, Math.random() * 3, 0, Math.PI * 2);
+      ctx.ellipse(rnd() * s, rnd() * s, 5 + rnd() * 20, 4 + rnd() * 12, rnd() * 3, 0, Math.PI * 2);
       ctx.fill();
     }
     for (let i = 0; i < 50; i++) {
-      ctx.strokeStyle = `rgba(50,40,70,${0.2 + Math.random() * 0.3})`;
+      ctx.strokeStyle = `rgba(50,40,70,${0.2 + rnd() * 0.3})`;
       ctx.lineWidth = 1;
-      const x = Math.random() * s, y = Math.random() * s;
+      const x = rnd() * s, y = rnd() * s;
       ctx.beginPath();
       ctx.moveTo(x, y);
       ctx.bezierCurveTo(x + 10, y + 15, x - 10, y + 25, x + 5, y + 40);
@@ -138,9 +141,9 @@ export function makeTextures() {
   const cloth = canvasTex(128, (ctx, s) => {
     noiseFill(ctx, s, [52, 48, 50], 30, 1500, 1, 2);
     for (let i = 0; i < 30; i++) {
-      ctx.fillStyle = `rgba(${50 + Math.random() * 20 | 0},${10 + Math.random() * 10 | 0},10,${0.3 + Math.random() * 0.5})`;
+      ctx.fillStyle = `rgba(${50 + rnd() * 20 | 0},${10 + rnd() * 10 | 0},10,${0.3 + rnd() * 0.5})`;
       ctx.beginPath();
-      ctx.ellipse(Math.random() * s, Math.random() * s, 4 + Math.random() * 12, 3 + Math.random() * 8, Math.random() * 3, 0, Math.PI * 2);
+      ctx.ellipse(rnd() * s, rnd() * s, 4 + rnd() * 12, 3 + rnd() * 8, rnd() * 3, 0, Math.PI * 2);
       ctx.fill();
     }
   }, 1);
@@ -148,12 +151,12 @@ export function makeTextures() {
   const stone = canvasTex(256, (ctx, s) => {
     noiseFill(ctx, s, [92, 92, 90], 50, 5000, 1, 4);
     for (let i = 0; i < 30; i++) {
-      ctx.strokeStyle = `rgba(30,30,30,${0.3 + Math.random() * 0.4})`;
-      ctx.lineWidth = 1 + Math.random() * 2;
-      const x = Math.random() * s, y = Math.random() * s;
+      ctx.strokeStyle = `rgba(30,30,30,${0.3 + rnd() * 0.4})`;
+      ctx.lineWidth = 1 + rnd() * 2;
+      const x = rnd() * s, y = rnd() * s;
       ctx.beginPath();
       ctx.moveTo(x, y);
-      ctx.lineTo(x + (Math.random() - 0.5) * 60, y + (Math.random() - 0.5) * 60);
+      ctx.lineTo(x + (rnd() - 0.5) * 60, y + (rnd() - 0.5) * 60);
       ctx.stroke();
     }
   }, 1);

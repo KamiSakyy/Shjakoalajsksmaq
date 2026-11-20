@@ -144,10 +144,11 @@ export function Controls({ game, hud }: Props) {
       {/* переключатель вида от третьего лица (пешком) */}
       {!inCar && (
         <button
-          className="absolute right-3 top-24 z-30 rounded-full border border-white/25 bg-black/45 px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-white/70 active:scale-95"
+          className="camera-toggle"
+          title={hud.onFootCam ? 'Переключить на вид от первого лица (C)' : 'Переключить на вид от третьего лица (C)'}
           onPointerDown={() => game.toggleOnFootCam()}
         >
-          {hud.onFootCam ? '1-е лицо' : '3-е лицо'}
+          ВИД · {hud.onFootCam ? '3-Е' : '1-Е'}
         </button>
       )}
       {/* зона движения — левая половина */}

@@ -47,6 +47,7 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
           <i style={{ transform: `scaleX(${Math.max(0, Math.min(1, hud.comboTimer / 3.6))})` }} />
         </div>
       )}
+      {hud.phoneOpen && <div className="hud-phone-hint"><b>ТЕЛЕФОН В РУКЕ</b><span>P — убрать · Esc — закрыть</span></div>}
       {hud.interact && !hud.inCar && <div className="hud-interact"><kbd>F</kbd>{hud.interact}</div>}
       {!hud.inCar && (hud.parkour === 'climb' || hud.parkour === 'wallrun' || hud.parkour === 'vault' || hud.parkour === 'mantle' || hud.parkour === 'slide') && (
         <div className={`hud-parkour ${hud.parkour}`}>
@@ -59,7 +60,9 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
       )}
       {!hud.inCar && hud.parkour === 'air' && hud.height > 2.2 && <div className="hud-height">{hud.height.toFixed(1)} м<br /><span>СПРАВА — ПЕРЕКАТ</span></div>}
       {hud.raceActive && <div className="hud-race"><b>ГОНКА</b><span>кольцо {hud.raceGate}</span><em>{hud.raceTime.toFixed(1)} с</em></div>}
-      {!hud.inCar && <div className={`reticle ${hud.ads ? 'aiming' : ''}`} />}
+      {!hud.inCar && !hud.phoneOpen && (
+        <div className={`reticle ${hud.ads ? 'aiming' : ''} ${hud.weapon === 'shotgun' ? 'wide' : hud.weapon === 'axe' ? 'melee' : ''}`} />
+      )}
       {hud.hitMarker > 0.02 && (
         <div className={`hit-marker ${hud.hitHead ? 'head' : ''}`} style={{ opacity: Math.min(1, hud.hitMarker * 1.4) }}>
           <i /><i /><i /><i />
@@ -82,6 +85,10 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
       </button>
       {radar?.destination && <div className="hud-route" aria-live="off"><MapIcon name="pin" size={14} /><span><b>{locationName(radar.destination)}</b><small>{formatDistance(routeDistance(radar.route))}</small></span></div>}
       <div className="hud-environment"><div className="hud-clock">{hud.clock}</div><div>{hud.raining ? 'ДОЖДЬ' : hud.night > 0.5 ? 'НОЧЬ' : hud.district}{hud.cloud > 0.32 ? ' · ОБЛАЧНО' : ''}</div>
+        <div className={`hud-mode ${hud.mode}`}>
+          {hud.mode === 'peace' ? 'МИРНЫЙ' : hud.mode === 'zombie' ? 'АПОКАЛИПСИС' : 'ОБЫЧНЫЙ'}
+          {hud.peers > 0 && <em>{hud.peers} в сети</em>}
+        </div>
         <small className="hud-station-name">{hud.station ? `♪ ${hud.station}` : ''}</small>
         {hud.weapon !== 'axe' && !hud.inCar && <p className="hud-ammo"><strong>{hud.weapon === 'shotgun' ? hud.shells : hud.ammo}</strong><span>/ {hud.weapon === 'shotgun' ? hud.shellReserve : hud.reserve}</span></p>}
         {hud.reloading && <span className="reload-status">ПЕРЕЗАРЯДКА</span>}

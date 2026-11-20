@@ -3,6 +3,10 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BOUNDS } from './city-plan';
 import { BEACH_START, ISLAND, CAUSEWAY_Z, OCEAN_DRIVE, shoreX } from './ocean';
 import type { Box3, Circle } from './city';
+import { worldRng } from './worldgen';
+import { markDynamic } from './optimize';
+/** Детерминированный поток «miami»: мир одинаков у всех и при каждом запуске. */
+const rnd = worldRng('miami');
 
 /**
  * Майами-Бич: Ocean Drive, арт-деко отели, променад, пальмы, спасательные
@@ -103,14 +107,14 @@ export class Miami {
       ctx.fillStyle = '#8a7355'; ctx.fillRect(0, 0, s, s);
       for (let i = 0; i < 16; i++) {
         const y = i * (s / 16);
-        ctx.fillStyle = `rgb(${120 + Math.random() * 30 | 0},${96 + Math.random() * 24 | 0},${68 + Math.random() * 20 | 0})`;
+        ctx.fillStyle = `rgb(${120 + rnd() * 30 | 0},${96 + rnd() * 24 | 0},${68 + rnd() * 20 | 0})`;
         ctx.fillRect(0, y + 1, s, s / 16 - 2);
         ctx.fillStyle = 'rgba(40,30,20,.35)';
         ctx.fillRect(0, y + s / 16 - 2, s, 2);
       }
       for (let i = 0; i < 120; i++) {
-        ctx.fillStyle = `rgba(30,22,14,${Math.random() * 0.18})`;
-        ctx.fillRect(Math.random() * s, Math.random() * s, 2, 1);
+        ctx.fillStyle = `rgba(30,22,14,${rnd() * 0.18})`;
+        ctx.fillRect(rnd() * s, rnd() * s, 2, 1);
       }
     }, 1);
     plank.repeat.set(1, 90);
@@ -243,8 +247,8 @@ export class Miami {
       for (const x of [roadX - 11.5, roadX + 11.5]) {
         palms.push(new THREE.Matrix4().compose(
           new THREE.Vector3(x, 0, z + Math.sin(z) * 2),
-          new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.random() * Math.PI * 2, 0)),
-          new THREE.Vector3(1, 1, 1).multiplyScalar(1.15 + Math.random() * 0.35)
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rnd() * Math.PI * 2, 0)),
+          new THREE.Vector3(1, 1, 1).multiplyScalar(1.15 + rnd() * 0.35)
         ));
       }
     }
@@ -331,10 +335,10 @@ export class Miami {
     const umbrellaColors = [0xff6b6b, 0x4ecdc4, 0xffe66d, 0xff9ff3, 0x6bcBff];
     const colors: number[] = [];
     for (let z = -BOUNDS - 20; z < BOUNDS + 20; z += 9) {
-      if (Math.random() < 0.45) continue;
-      const x = shoreX(z) - 12 - Math.random() * 20;
+      if (rnd() < 0.45) continue;
+      const x = shoreX(z) - 12 - rnd() * 20;
       umbrellas.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 1.85, z), new THREE.Quaternion(), new THREE.Vector3(1, 1, 1)));
-      colors.push(umbrellaColors[(Math.random() * umbrellaColors.length) | 0]);
+      colors.push(umbrellaColors[(rnd() * umbrellaColors.length) | 0]);
     }
     if (umbrellas.length) {
       const inst = new THREE.InstancedMesh(umbrellaGeo, umbrellaMat, umbrellas.length);
@@ -346,11 +350,11 @@ export class Miami {
     // пальмы вдоль пляжа
     const palms: THREE.Matrix4[] = [];
     for (let z = -BOUNDS - 30; z < BOUNDS + 30; z += 21) {
-      const x = shoreX(z) - 34 - Math.random() * 8;
+      const x = shoreX(z) - 34 - rnd() * 8;
       palms.push(new THREE.Matrix4().compose(
-        new THREE.Vector3(x, 0.2, z + Math.random() * 6),
-        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.random() * 6.28, 0.04 * (Math.random() - 0.5))),
-        new THREE.Vector3(1, 1, 1).multiplyScalar(1.1 + Math.random() * 0.5)
+        new THREE.Vector3(x, 0.2, z + rnd() * 6),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rnd() * 6.28, 0.04 * (rnd() - 0.5))),
+        new THREE.Vector3(1, 1, 1).multiplyScalar(1.1 + rnd() * 0.5)
       ));
       this.city.colliders.push({ x, z, r: 0.4 });
     }
@@ -372,7 +376,7 @@ export class Miami {
     const leafParts: THREE.BufferGeometry[] = [];
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2;
-      const len = 3.1 + Math.random() * 1.1;
+      const len = 3.1 + rnd() * 1.1;
       const leaf = new THREE.PlaneGeometry(len, 0.85, 4, 1);
       const pos = leaf.attributes.position;
       for (let v = 0; v < pos.count; v++) {
@@ -437,11 +441,12 @@ export class Miami {
 
     // яхты
     for (let i = 0; i < 6; i++) {
-      const yacht = this.makeYacht(9 + Math.random() * 5, i % 2 ? 0xf2f4f2 : 0xe8e2d0);
-      yacht.position.set(baseX + 26 + Math.random() * 8, 0.1, z - 30 + i * 12 + (i % 2 ? 4.5 : -4.5));
-      yacht.rotation.y = Math.PI / 2 + (Math.random() - 0.5) * 0.12;
+      const yacht = this.makeYacht(9 + rnd() * 5, i % 2 ? 0xf2f4f2 : 0xe8e2d0);
+      yacht.position.set(baseX + 26 + rnd() * 8, 0.1, z - 30 + i * 12 + (i % 2 ? 4.5 : -4.5));
+      yacht.rotation.y = Math.PI / 2 + (rnd() - 0.5) * 0.12;
       this.group.add(yacht);
-      this.yachts.push({ root: yacht, phase: Math.random() * 6.28 });
+      markDynamic(yacht);
+      this.yachts.push({ root: yacht, phase: rnd() * 6.28 });
     }
   }
 
