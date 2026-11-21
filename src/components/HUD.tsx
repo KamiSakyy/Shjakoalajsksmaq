@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import type { HudState } from '../game/Game';
 import { MIO_ABILITIES } from '../game/mio';
+
+/** Кластеры ангелов по углам экрана: [индексы в MIO_ABILITIES]. */
+const MIO_CLUSTERS = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10]];
 import { formatDistance, routeDistance, locationName } from '../game/city-plan';
 import { paintRadar, MapIcon, type RadarFrame } from './CityMap';
 
@@ -76,8 +79,9 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, onMio, onMio
         <Bar value={hud.hp} color="#bb7465" label="ЗДОРОВЬЕ" icon="+" />
         <Bar value={hud.stamina} color="#c6cbb1" label="СИЛЫ" icon="/" />
         {hud.armor > 0.5 && <Bar value={(hud.armor / hud.armorMax) * 100} color="#6f9fd8" label="БРОНЯ" icon="▲" />}
-        {hud.weapon === 'axe' && <Bar value={hud.sharpness * 100} color="#bea77d" label="ЛЕЗВИЕ" icon="|" />}
-        {hud.weapon === 'axe' && <div className="hud-axe">{hud.axeShort}</div>}
+        {hud.weapon === 'axe' && !hud.mioActive && <Bar value={hud.sharpness * 100} color="#bea77d" label="ЛЕЗВИЕ" icon="|" />}
+        {hud.weapon === 'axe' && !hud.mioActive && <div className="hud-axe">{hud.axeShort}</div>}
+        {hud.mioActive && <div className="hud-axe mio-form-tag">ПЕРВЫЙ ДУХ · {hud.mioLast || 'AIN SOPH'}</div>}
         <div className="hud-level">УРОВЕНЬ {hud.level}<span>{hud.kills} УСТРАНЕНО</span><span className="hud-packs">ПАКЕТЫ {hud.packages}/{hud.packagesTotal}</span></div>
         <button type="button" className="hud-cash pointer-events-auto" onClick={onPhone} title="Открыть телефон (P)">
           <b>${Math.round(hud.cash).toLocaleString('ru-RU')}</b><span>телефон</span>
@@ -116,30 +120,39 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, onMio, onMio
       {hud.nearEmergency && !hud.inCar && <div className="emergency-hint">{hud.nearEmergency === 'fire' ? 'ПОЖАРНАЯ МАШИНА' : 'СКОРАЯ ПОМОЩЬ'} · можно сесть за руль</div>}
       {log && <div key={log.id} className="hit-log hud-log">{log.text}</div>}
       {hud.mioActive ? (
-        <div className="mio-panel pointer-events-auto">
-          <div className="mio-head">
-            <div><b>МИО ТАКАМИЯ</b><span>ПЕРВЫЙ ДУХ · AIN SOPH</span></div>
-            <button type="button" onClick={onMio} title="Вернуться в человека (V)">ЧЕЛОВЕК</button>
-          </div>
-          <div className="mio-energy">
-            <i style={{ width: `${Math.max(0, Math.min(1, hud.mioEnergy)) * 100}%` }} />
-            <span>ЭНЕРГИЯ {Math.round(hud.mioEnergy * 100)}%</span>
-          </div>
-          <div className="mio-slots">
-            {MIO_ABILITIES.map((a, i) => {
-              const cd = hud.mioCooldowns[i] ?? 0;
-              const ready = cd <= 0.001;
-              return (
-                <button key={a.id} type="button" className={`mio-slot ${ready ? '' : 'cool'}`} onClick={() => onMioCast(i)} title={`${a.name} — ${a.desc}`}>
-                  <b>{a.key}</b>
-                  <small>{a.name}</small>
-                  {!ready && <i style={{ height: `${Math.min(100, (cd / a.cd) * 100)}%` }} />}
+        <>
+          {/* энергия — тонкая полоса по верхнему краю, ничего не закрывает */}
+          <div className="mio-energy-edge"><i style={{ width: `${Math.max(0, Math.min(1, hud.mioEnergy)) * 100}%` }} /></div>
+          {MIO_CLUSTERS.map((cluster, ci) => (
+            <div className={`mio-cluster c${ci}`} key={ci}>
+              {cluster.map(i => {
+                const a = MIO_ABILITIES[i];
+                if (!a) return null;
+                const cd = hud.mioCooldowns[i] ?? 0;
+                const ready = cd <= 0.001;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className={`mio-key pointer-events-auto ${ready ? '' : 'cool'} ${a.id === 'ainsoph' ? 'ult' : ''}`}
+                    onClick={() => onMioCast(i)}
+                    title={`${a.name} — ${a.desc}`}
+                    aria-label={`${a.name}: ${a.desc}`}
+                  >
+                    <b>{a.key}</b>
+                    <small>{a.name}</small>
+                    {!ready && <i style={{ height: `${Math.min(100, (cd / a.cd) * 100)}%` }} />}
+                  </button>
+                );
+              })}
+              {ci === 2 && (
+                <button type="button" className="mio-key toggle-back pointer-events-auto" onClick={onMio} title="Вернуться в человека (V)">
+                  <b>V</b><small>человек</small>
                 </button>
-              );
-            })}
-          </div>
-          <p className="mio-hint">1…9, 0 — ангелы · H — Ханиэль · ПРОБЕЛ вверх · X вниз · SHIFT ускорение · V назад</p>
-        </div>
+              )}
+            </div>
+          ))}
+        </>
       ) : (
         <button type="button" className="mio-btn pointer-events-auto" onClick={onMio} title="Превратиться в Мио Такамию (V)">
           <b>МИО</b><span>стать Первым Духом</span>

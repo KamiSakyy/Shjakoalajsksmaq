@@ -430,7 +430,7 @@ export class Game {
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera, this.weaponView);
     this.playerRig = createCharacter('human', 'normal', 4);
-    this.mio = new Mio(this, this.scene, this.playerRig);
+    this.mio = new Mio(this, this.scene);
     this.handWeapon.position.set(0, -0.29, 0.03);
     this.handWeapon.rotation.set(-0.15, 0, 0);
     this.handWeapon.visible = false;
@@ -2956,7 +2956,7 @@ export class Game {
     const handsFree = !this.phoneOpen;
     this.pistol.group.visible = this.weapon === 'pistol' && firstPerson && handsFree && !this.mio.active;
     this.shotgun.group.visible = this.weapon === 'shotgun' && firstPerson && handsFree && !this.mio.active;
-    this.playerRig.root.visible = !inVehicle && this.onFootCam === 1;
+    this.playerRig.root.visible = !inVehicle && this.onFootCam === 1 && !this.mio.active;
     this.syncHandWeapon();
 
     this.city.updateLights(dt);

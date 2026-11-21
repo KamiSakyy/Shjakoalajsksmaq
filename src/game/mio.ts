@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import type { Game } from './Game';
-import type { CharacterRig } from './characters';
 import type { Npc } from './npc';
 import { audio } from './audio';
+import { createMioModel, type MioModel } from './mio-model';
 
 /**
  * Мио Такамия — Первый Дух, «Deus Ex Machina».
@@ -60,38 +60,6 @@ function glowTexture(inner = 'rgba(255,240,190,1)', mid = 'rgba(255,196,92,0.55)
   return t;
 }
 
-/** Крыло света: перьевая дымка с золотым обрезом. */
-function wingTexture() {
-  const c = document.createElement('canvas');
-  c.width = 128; c.height = 256;
-  const ctx = c.getContext('2d')!;
-  ctx.clearRect(0, 0, 128, 256);
-  const g = ctx.createLinearGradient(0, 0, 128, 0);
-  g.addColorStop(0, 'rgba(255,240,200,0.95)');
-  g.addColorStop(0.45, 'rgba(255,206,120,0.5)');
-  g.addColorStop(1, 'rgba(255,170,60,0)');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.moveTo(6, 4);
-  ctx.quadraticCurveTo(120, 70, 112, 150);
-  ctx.quadraticCurveTo(70, 236, 10, 250);
-  ctx.quadraticCurveTo(34, 128, 6, 4);
-  ctx.fill();
-  // прожилки перьев
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-  ctx.lineWidth = 1.4;
-  for (let i = 0; i < 9; i++) {
-    const y = 24 + i * 25;
-    ctx.beginPath();
-    ctx.moveTo(12, y);
-    ctx.lineTo(96 - i * 3, y + 28);
-    ctx.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
 function addMat(color: number, opacity = 1) {
   return new THREE.MeshBasicMaterial({
     color, transparent: true, opacity, depthWrite: false,
@@ -119,14 +87,10 @@ export class Mio {
   introT = 0;
 
   private root = new THREE.Group();
-  private halo!: THREE.Mesh;
+  private model!: MioModel;
   private ring!: THREE.Mesh;
   private aura!: THREE.Sprite;
-  private wings: THREE.Mesh[] = [];
-  private dress!: THREE.Mesh;
-  private hair!: THREE.Group;
   private bladeFP!: THREE.Mesh;
-  private hairMeshes: { mat: THREE.MeshStandardMaterial; color: number }[] = [];
   private glow!: THREE.PointLight;
   private flightVel = new THREE.Vector3();
   private fx: Fx[] = [];
@@ -137,7 +101,7 @@ export class Mio {
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
 
-  constructor(private game: Game, private scene: THREE.Scene, private rig: CharacterRig) {
+  constructor(private game: Game, private scene: THREE.Scene) {
     this.root.name = 'mio-form';
     this.root.visible = false;
 
@@ -150,66 +114,22 @@ export class Mio {
     this.aura.position.y = 1.05;
     this.root.add(this.aura);
 
-    // нимб над головой
-    this.halo = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.011, 6, 40), addMat(0xffe6a3, 0.95));
-    this.halo.rotation.x = Math.PI / 2;
-    this.halo.position.y = 2.02;
-    this.root.add(this.halo);
-
     // кольцо у ног
     this.ring = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.014, 6, 56), addMat(0xffc061, 0.75));
     this.ring.rotation.x = Math.PI / 2;
     this.ring.position.y = 0.06;
     this.root.add(this.ring);
 
-    // крылья света
-    const wingGeo = new THREE.PlaneGeometry(1.15, 2.1);
-    const wingMat = new THREE.MeshBasicMaterial({
-      map: wingTexture(), transparent: true, opacity: 0.8, depthWrite: false,
-      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    });
-    for (const side of [-1, 1]) {
-      const w = new THREE.Mesh(wingGeo, wingMat.clone());
-      w.position.set(side * 0.34, 1.42, 0.16);
-      w.rotation.y = side * 0.55;
-      w.rotation.z = side * -0.18;
-      this.root.add(w);
-      this.wings.push(w);
-    }
-
-    // спиритуальное платье: белое с золотом
-    this.dress = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.16, 0.46, 1.04, 14, 1, true),
-      new THREE.MeshStandardMaterial({
-        color: 0xf7f3ea, roughness: 0.35, metalness: 0.1, transparent: true, opacity: 0.94,
-        side: THREE.DoubleSide, emissive: 0xffdca8, emissiveIntensity: 0.35,
-      }),
-    );
-    this.dress.position.y = 0.58;
-    this.root.add(this.dress);
-    const trim = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.014, 6, 24), addMat(0xffd489, 0.9));
-    trim.rotation.x = Math.PI / 2;
-    trim.position.y = 1.08;
-    this.root.add(trim);
-
-    // длинные серебряные волосы (канонический силуэт Мио)
-    this.hair = new THREE.Group();
-    const hairMat = new THREE.MeshStandardMaterial({ color: 0xdfe3ec, roughness: 0.42, metalness: 0.08, emissive: 0x2a2f3c, emissiveIntensity: 0.25 });
-    for (let i = 0; i < 5; i++) {
-      const len = 0.46 + (i % 3) * 0.1;
-      const strand = new THREE.Mesh(new THREE.CapsuleGeometry(0.035 - i * 0.003, len, 3, 6), hairMat);
-      strand.position.set(-0.11 + i * 0.055, -0.1 - len * 0.35, 0.055 + (i % 2) * 0.03);
-      strand.rotation.x = 0.08 + i * 0.02;
-      this.hair.add(strand);
-    }
-    this.hair.position.set(0, 0.12, -0.02);
-    this.root.add(this.hair);
-
     this.glow = new THREE.PointLight(0xffce85, 0, 12, 1.8);
     this.glow.position.y = 1.4;
     this.root.add(this.glow);
 
     scene.add(this.root);
+
+    // полноценная 3D-модель Мио: своё лицо, платье, волосы, глаза, крылья
+    this.model = createMioModel();
+    this.model.root.name = 'mio-model';
+    scene.add(this.model.root);
 
     // клинок света в руке: в виде от первого лица живёт на камере оружия
     this.bladeFP = new THREE.Mesh(
@@ -223,17 +143,6 @@ export class Mio {
     const guard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, 0.05), addMat(0xfff2cf, 0.85));
     guard.position.y = -0.47;
     this.bladeFP.add(guard);
-
-    // перекрашиваем волосы персонажа в серебро, пока форма активна
-    const hairColors = new Set([0x312b25, 0x483a2c, 0x595147]);
-    this.rig.root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      const mat = m.material as THREE.MeshStandardMaterial;
-      if (mat?.color && hairColors.has(mat.color.getHex())) {
-        this.hairMeshes.push({ mat, color: mat.color.getHex() });
-      }
-    });
   }
 
   /** Включить/выключить форму Первого Духа. */
@@ -242,9 +151,10 @@ export class Mio {
     if (next === this.active) return this.active;
     this.active = next;
     this.root.visible = next;
+    this.model.root.visible = next;
     this.bladeFP.visible = next;
     this.game.axe.setVisible(!next && this.game.weapon === 'axe' && this.game.onFootCam === 0);
-    for (const h of this.hairMeshes) h.mat.color.setHex(next ? 0xe4e8f0 : h.color);
+
     if (next) {
       this.transformT = 0.9;
       this.introT = 6;
@@ -258,6 +168,7 @@ export class Mio {
       this.flash(0.9);
       this.burst(this.game.pos.clone().setY(this.game.pos.y + 1), 1.6);
     } else {
+      this.model.root.visible = false;
       this.flying = false;
       this.energy = this.maxEnergy;
       this.game.setLog('Ты снова человек');
@@ -394,39 +305,26 @@ export class Mio {
       if (this.root.visible) this.root.visible = false;
       return;
     }
+    const t = this.time;
+    const p = this.game.pos;
     // в машине дух «в кармане», в виде от первого лица — только свет вокруг
     const inCar = !!this.game.vehicle;
     const fp = this.game.onFootCam === 0 && !inCar;
     this.root.visible = !inCar;
-    this.dress.visible = !fp;
-    this.hair.visible = !fp;
-    this.halo.visible = !fp;
-    for (const w of this.wings) w.visible = !fp;
+    this.model.root.visible = !inCar && !fp;
     this.aura.position.y = fp ? 0.35 : 1.05;
-    this.energy = Math.min(this.maxEnergy, this.energy + dt * 7.5);
-    if (this.transformT > 0) this.transformT = Math.max(0, this.transformT - dt);
+    this.aura.scale.setScalar((fp ? 1.7 : 2.6) + Math.sin(t * 2.2) * 0.18);
 
-    // форма следует за игроком
-    const p = this.game.pos;
-    this.root.position.set(p.x, p.y, p.z);
-    const t = this.time;
-    this.aura.material.opacity = 0.55 + Math.sin(t * 3.1) * 0.12 + (this.flying ? 0.15 : 0);
-    this.aura.scale.setScalar((fp ? 1.7 : 2.5) + Math.sin(t * 2.2) * 0.18);
-    this.halo.position.y = 2.02 + Math.sin(t * 1.7) * 0.03;
-    this.halo.rotation.z += dt * 0.6;
+    // модель встаёт ровно туда же, куда обычный персонаж
+    this.model.root.position.copy(p);
+    this.model.root.rotation.y = this.game.yaw + Math.PI;
+    const horizontal = this.flying ? this.flightVel.length() : Math.hypot(this.game.vel.x, this.game.vel.z);
+    this.model.update({ dt, time: t, speed: horizontal, flying: this.flying, vy: this.flightVel.y });
+
     this.ring.rotation.z += dt * 1.1;
     this.ring.scale.setScalar(1 + Math.sin(t * 2.4) * 0.05);
     (this.ring.material as THREE.MeshBasicMaterial).opacity = 0.45 + Math.sin(t * 3) * 0.16;
     this.glow.intensity = 2.4 + Math.sin(t * 2.6) * 0.7;
-
-    const flap = this.flying ? Math.sin(this.flap) * 0.22 : Math.sin(t * 1.4) * 0.06;
-    this.wings.forEach((w, i) => {
-      const side = i === 0 ? -1 : 1;
-      w.rotation.z = side * (-0.18 + flap);
-      w.rotation.y = side * (0.55 + (this.flying ? 0.18 : 0.05));
-      (w.material as THREE.MeshBasicMaterial).opacity = 0.55 + (this.flying ? 0.35 : 0.1) + Math.sin(t * 4 + i) * 0.08;
-    });
-    (this.dress.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.3 + Math.sin(t * 2.1) * 0.1;
     this.bladeFP.visible = this.active && this.game.onFootCam === 0 && !this.game.vehicle;
     (this.bladeFP.material as THREE.MeshBasicMaterial).opacity = 0.8 + Math.sin(t * 6) * 0.15;
 
