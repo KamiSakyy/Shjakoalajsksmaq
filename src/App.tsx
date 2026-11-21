@@ -25,6 +25,7 @@ const initialHud: HudState = {
   packages: 0, packagesTotal: 0, raceActive: false, raceGate: '', raceTime: 0, interact: null, skirt: 'stand',
   molotovs: 3, grenades: 2, throwKind: 'molotov', parkour: 'none', height: 0, hitMarker: 0, hitHead: false, armor: 0, armorMax: 100,
   mode: 'normal', peers: 0, world: '00000000', phoneOpen: false,
+  axeName: 'Аварийный топор', axeShort: 'АВАРИЙНЫЙ',
 };
 type Panel = 'settings' | 'controls' | 'characters' | 'about' | 'map' | null;
 const WORLD_SIG = worldSignature({ seed: WORLD_SEED, v: 3 });

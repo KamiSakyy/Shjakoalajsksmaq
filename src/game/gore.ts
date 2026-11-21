@@ -182,7 +182,7 @@ export class Gore {
    * Отсекает часть тела: физика, фонтан, куски, лужа.
    * Возвращает объект конечности (уже в мировых координатах) или null.
    */
-  sever(n: Npc, part: PartName, dir: THREE.Vector3, energy01: number): THREE.Object3D | null {
+  sever(n: Npc, part: PartName, dir: THREE.Vector3, energy01: number, spray = 1): THREE.Object3D | null {
     const obj = n.dismember(part);
     if (!obj) return null;
     const world = obj.getWorldPosition(new THREE.Vector3());
@@ -198,10 +198,10 @@ export class Gore {
     this.trail(obj);
 
     // артерия
-    this.jet(stump, dir, part === 'head' ? 1.45 : part === 'torso' ? 1.3 : 0.95);
+    this.jet(stump, dir, (part === 'head' ? 1.45 : part === 'torso' ? 1.3 : 0.95) * spray);
     // мелкие брызги по сторонам
     _v.copy(dir).multiplyScalar(-1);
-    this.particles.bloodBurst(stump, _v, energy01, part === 'head' ? 46 : 26);
+    this.particles.bloodBurst(stump, _v, energy01, Math.round((part === 'head' ? 46 : 26) * spray));
     if (this.quality !== 'low') {
       _v2.set(Math.random() - 0.5, 1, Math.random() - 0.5).normalize();
       this.particles.goreChunks(stump, _v2, Math.min(1, energy01 + 0.25));
@@ -217,8 +217,10 @@ export class Gore {
   }
 
   /** Тяжёлый удар без отсечения: брызги, лужа, пелена. */
-  hit(pos: THREE.Vector3, dir: THREE.Vector3, energy01: number, depth: number, near: boolean) {
-    this.particles.bloodBurst(pos, dir, energy01, 12 + Math.round(60 * depth));
+  hit(pos: THREE.Vector3, dir: THREE.Vector3, energy01: number, depth: number, near: boolean, spray = 1, crush = 1) {
+    // режущее лезвие даёт веер мелких брызг, дробящее — крупные тяжёлые капли и мясо
+    this.particles.bloodBurst(pos, dir, energy01, Math.round((12 + 60 * depth) * spray));
+    if (crush > 1.25) this.particles.goreChunks(pos, dir, Math.min(1, energy01 + 0.2));
     if (depth > 0.25 && Math.random() < 0.5) {
       _v.copy(pos); _v.y = 0;
       this.pool(_v, 0.25 + depth * 0.7);

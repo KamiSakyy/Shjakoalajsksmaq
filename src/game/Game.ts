@@ -45,6 +45,7 @@ import { HandyPhone } from './phone-prop';
 import { NetClock, RemoteActors, encodeSnapshot, decodeSnapshot, type NetSnapshot } from './net';
 import { WORLD_SEED, worldSignature } from './worldgen';
 import { SHOP_BY_ID } from './shop';
+import { AXES, AXE_BY_ID, DEFAULT_AXE, severProfile } from './axes';
 
 export type Weapon = 'axe' | 'pistol' | 'shotgun';
 export type { GameMode } from './modes';
@@ -60,6 +61,8 @@ export interface HudState {
   charge: number;
   overcharge: number;
   axeState: string;
+  axeName: string;
+  axeShort: string;
   pullProgress: number;
   zombiesAlive: number;
   civiliansAlive: number;
@@ -467,7 +470,7 @@ export class Game {
     const boulevard = this.traffic.spawn('sedan', 3.55, -47, Math.PI, true, 0x8b4635);
     this.streetLife.seedCar(boulevard, boulevard.pos, { x: 0, z: -1, axis: 'z' }, 7.5);
     this.dayNight = new DayNight(this.scene, this.renderer);
-    this.particles = new Particles(this.scene);
+    this.particles = new Particles(this.scene, this.budget.particleScale);
     this.axe = new Axe(this.weaponView, this.scene, this.tex);
     this.axe.feedback = {
       shake: (t) => (this.trauma = Math.min(1, this.trauma + t)),
@@ -475,6 +478,11 @@ export class Game {
       fovPunch: (a) => (this.fovPunch = Math.min(0.2, this.fovPunch + a)),
     };
     this.axe.onWhoosh = (s) => audio.whoosh(s);
+    // топор, выбранный в прошлый раз, остаётся в руках
+    try {
+      const saved = localStorage.getItem('shj.axe');
+      if (saved && saved !== DEFAULT_AXE && AXE_BY_ID.has(saved)) this.axe.equip(AXE_BY_ID.get(saved)!);
+    } catch { /* приватный режим */ }
     this.pistol = new Pistol(this.weaponView);
     this.pistol.group.visible = false;
     this.shotgun = new Shotgun(this.weaponView);
@@ -1737,7 +1745,8 @@ export class Game {
     const bladeF = this.axe.bladeFactor();
     if (isBlade && bladeF < 0.45 && mat !== 'stone') mat = 'blunt';
     const resistance = mat === 'blunt' || mat === 'stone' ? 1e9 : hit.resistance;
-    let depth = clamp((E * MATERIALS[mat].penetration * sharpF * bladeF) / resistance, 0, 1);
+    const spec = this.axe.spec;
+    let depth = clamp((E * MATERIALS[mat].penetration * sharpF * bladeF * spec.pierce) / resistance, 0, 1);
     if (mat === 'blunt' || mat === 'stone') depth = 0;
     const dirH = dir.clone(); dirH.y = 0; dirH.normalize();
     const near = hit.point.distanceTo(camP) < 1.9;
@@ -1756,9 +1765,10 @@ export class Game {
         this.setLog(`Удар древком · ${Math.round(E)} Дж`);
         this.particles.dustPuff(hit.point, 2);
       } else {
-        const dmg = this.npcDamage(part, depth) * (human ? 0.55 : 1) * (this.perks.has('brutal') ? 1.15 : 1);
+        const prof = severProfile(spec);
+        const dmg = this.npcDamage(part, depth) * spec.damage * (human ? 0.55 : 1) * (this.perks.has('brutal') ? 1.15 : 1);
         n.addWound(part, hit.point, 0.025 + 0.05 * depth);
-        this.gore.hit(hit.point, dir, E01, depth, near);
+        this.gore.hit(hit.point, dir, E01, depth, near, prof.spray * (0.7 + 0.3 * spec.cut), prof.crush);
         if (near) this.onEvent?.({ type: 'splash', amount: 0.25 + depth * 0.8 + E01 * 0.3 });
         const impulse = dirH.clone().multiplyScalar((0.5 + 2.4 * E01) * (part === 'torso' || part === 'head' ? 1 : 0.6));
         n.applyHit(part, dmg, impulse, 0.25 + 0.6 * depth);
@@ -1767,33 +1777,52 @@ export class Game {
         let txt = `${partRu[part]} · ${Math.round(E)} Дж · глубина ${Math.round(depth * 12)} см`;
         let severed = false;
         // Порог отсечения зависит от остроты лезвия и силы замаха:
-        // затупленным топором рубить приходится дольше.
-        const cutPower = depth * (0.66 + 0.46 * this.axe.sharpness) * (0.8 + E01 * 0.45) * (this.perks.has('butcher') ? 1.12 : 1);
+        // затупленным топором рубить приходится дольше. Форма головы задаёт
+        // характер реза: палач снимает голову, кувалда ломает, но не режет.
+        // Разруб считается по энергии удара в джоулях, а не по «глубине»:
+        // шейные позвонки рвутся примерно на 90 Дж, кость руки — на 120 Дж,
+        // позвоночник и рёбра — только очень тяжёлой головой (320 Дж).
+        // Острота, форма головы и масса дают множители, поэтому один и тот же
+        // замах разными топорами заканчивается по-разному.
+        const limb = part === 'armL' || part === 'armR' || part === 'foreL' || part === 'foreR' || part === 'thighL' || part === 'thighR' || part === 'shinL' || part === 'shinR';
+        const boneNeed = part === 'head' ? 90 : limb ? 120 : 320;
+        const edge = 0.55 + 0.45 * this.axe.sharpness;
+        const profMul = part === 'head' ? prof.head : part === 'torso' ? prof.torso : limb ? prof.limb : 1;
+        const cutPower = (E * edge * spec.cut * profMul * (this.perks.has('butcher') ? 1.12 : 1) * (0.55 + 0.45 * depth)) / boneNeed;
+        const canSever = depth > 0.4;
         const limbName = part === 'armL' || part === 'armR' || part === 'foreL' || part === 'foreR' ? 'РУКУ'
           : part === 'thighL' || part === 'thighR' || part === 'shinL' || part === 'shinR' ? 'НОГУ' : '';
-        if (part === 'head' && cutPower > 0.48) {
-          const obj = this.gore.sever(n, 'head', dir, E01);
+        if (part === 'head' && canSever && this.rollCut(n, part, cutPower)) {
+          const obj = this.gore.sever(n, 'head', dir, E01, prof.spray);
           if (obj) {
             severed = true;
-            txt = `СНЁС ГОЛОВУ · ${Math.round(E)} Дж`;
+            txt = `${prof.crush > 1.25 ? 'РАЗМОЗЖИЛ ЧЕРЕП' : spec.cut > 1.3 ? 'СНЁС ГОЛОВУ ОДНИМ РЕЗОМ' : 'СНЁС ГОЛОВУ'} · ${spec.short} · ${Math.round(E)} Дж`;
             this.gore.slowmo(0.3, 0.55);
             this.trauma = Math.min(1, this.trauma + 0.34);
             audio.impact('bone', 1, 1);
           }
-        } else if (limbName && cutPower > 0.5) {
-          const obj = this.gore.sever(n, part, dir, E01);
+        } else if (limbName && canSever && this.rollCut(n, part, cutPower)) {
+          const obj = this.gore.sever(n, part, dir, E01, prof.spray);
           if (obj) {
             severed = true;
-            txt = `ОТРУБИЛ ${limbName} · ${Math.round(E)} Дж`;
+            txt = `${prof.crush > 1.25 ? 'ОТОРВАЛ' : 'ОТРУБИЛ'} ${limbName} · ${spec.short} · ${Math.round(E)} Дж`;
             this.gore.slowmo(0.5, 0.3);
             this.trauma = Math.min(1, this.trauma + 0.16);
           }
-        } else if (part === 'torso' && cutPower > 0.84) {
-          // Разрубание пополам: мгновенная смерть и максимум мяса
-          this.gore.explode(n, dir, 1);
+        } else if (part === 'torso' && canSever && prof.crush > 1.25 && this.rollCut(n, part, cutPower / 0.72)) {
+          // Дробящая голова не режет, а ломает: torso складывается пополам.
+          this.gore.explode(n, dir, 0.75);
           n.hp = 0;
           severed = true;
-          txt = `РАЗРУБИЛ ПОПОЛАМ · ${Math.round(E)} Дж`;
+          txt = `СЛОМАЛ ПОПОЛАМ · ${spec.short} · ${Math.round(E)} Дж`;
+          this.gore.slowmo(0.28, 0.7);
+          this.trauma = Math.min(1, this.trauma + 0.45);
+        } else if (part === 'torso' && canSever && this.rollCut(n, part, cutPower)) {
+          // Разрубание пополам: мгновенная смерть и максимум мяса.
+          this.gore.explode(n, dir, prof.crush > 1.25 ? 0.75 : 1);
+          n.hp = 0;
+          severed = true;
+          txt = `${prof.crush > 1.25 ? 'СЛОМАЛ ПОПОЛАМ' : 'РАЗРУБИЛ ПОПОЛАМ'} · ${spec.short} · ${Math.round(E)} Дж`;
           this.gore.slowmo(0.28, 0.7);
           this.trauma = Math.min(1, this.trauma + 0.45);
         }
@@ -1806,10 +1835,10 @@ export class Game {
         this.setLog(txt);
         if (!severed && !human) {
           const sc = part === 'head' ? 0.45 : part === 'torso' ? 0.3 : 0.12;
-          if (depth > 0.5 && Math.random() < sc * (depth + 0.2) + (part === 'head' ? 0.1 : 0)) {
+          if (depth > 0.5 && Math.random() < (sc * (depth + 0.2) + (part === 'head' ? 0.1 : 0)) * spec.stuck) {
             stuck = true;
             attachTo = hit.cap.obj;
-            pullResist = part === 'head' ? 2.6 : 1.7;
+            pullResist = (part === 'head' ? 2.6 : 1.7) * (0.72 + 0.28 * spec.stuck);
             this.axe.stuckData = n;
             this.setLog(txt + ' · ЗАСТРЯЛ');
           }
@@ -1819,7 +1848,7 @@ export class Game {
       this.particles.woodChips(hit.point, dir, E01);
       audio.impact('wood', E01, depth);
       this.setLog(`дерево · ${Math.round(E)} Дж · врубился на ${Math.round(depth * 12)} см`);
-      if (depth > 0.35 && Math.random() < MATERIALS.wood.stuckChance * (0.1 + depth * 0.7)) {
+      if (depth > 0.35 && Math.random() < MATERIALS.wood.stuckChance * (0.1 + depth * 0.7) * spec.stuck) {
         stuck = true;
         attachTo = null;
         this.axe.stuckData = null;
@@ -2179,6 +2208,44 @@ export class Game {
     const limb = part === 'armL' || part === 'armR' || part === 'foreL' || part === 'foreR' || part === 'thighL' || part === 'thighR' || part === 'shinL' || part === 'shinR';
     if ((limb && depth > 0.66) || (part === 'head' && depth > 0.7)) this.gore.sever(n, part, dir, E01);
     if (n.hp <= 0 && n.alive) { n.kill(dir); this.registerKill(n); }
+  }
+
+  // ===== арсенал топоров =====
+  /** Каталог для телефона: все топоры выдаются бесплатно. */
+  get axeCatalog() { return AXES; }
+  get axeId() { return this.axe.spec.id; }
+
+  /**
+   * Взять топор из арсенала. Доступно и из машины, и на ходу — телефон
+   * открывается в любом состоянии, а топор переезжает в руки мгновенно.
+   * Возвращает false, только если топор сейчас застрял в чужой голове.
+   */
+  equipAxe(id: string): { ok: boolean; message: string } {
+    const spec = AXE_BY_ID.get(id);
+    if (!spec) return { ok: false, message: 'нет такого топора' };
+    if (this.axe.state === 'stuck') return { ok: false, message: 'сначала выдерни текущий топор' };
+    if (spec.id === this.axe.spec.id) return { ok: true, message: `${spec.name} уже в руках` };
+    this.axe.equip(spec);
+    this.setLog(`ТОПОР · ${spec.name} · ${spec.power}/10`);
+    try { localStorage.setItem('shj.axe', spec.id); } catch { /* приватный режим */ }
+    return { ok: true, message: spec.name };
+  }
+
+  /**
+   * Накопитель реза: слабым топором по одному месту можно рубить несколько раз,
+   * и на третьем-четвёртом заходе кость всё-таки сдаётся. Сильный топор
+   * проходит с первого удара — и сразу списывает накопитель.
+   */
+  private cutMeter = new WeakMap<Npc, Partial<Record<string, number>>>();
+  private rollCut(n: Npc, part: PartName, power: number) {
+    if (power >= 1) { this.cutMeter.delete(n); return true; }
+    // шанс на «частичный» разрез: накопитель + немного удачи
+    let m = this.cutMeter.get(n);
+    if (!m) { m = {}; this.cutMeter.set(n, m); }
+    const next = (m[part] ?? 0) + power;
+    if (next >= 1) { m[part] = 0; return true; }
+    m[part] = next;
+    return false;
   }
 
   private npcDamage(part: PartName, depth: number) {
@@ -2855,6 +2922,10 @@ export class Game {
     // день/ночь
     this.dayNight.cloudCover = 0.36 + this.weather.intensity * 0.52;
     this.dayNight.update(dt, this.pos, this.scene);
+    // Глаз адаптируется к тени облака: под тучей картинка не проваливается в
+    // чёрное, а становится мягче — как в жизни.
+    const baseExp = this.budget.tier === 'low' ? 1.06 : 1.02;
+    this.renderer.toneMappingExposure = baseExp * (1 + this.dayNight.sunOcclusion * 0.07);
     this.dayNight.sun.intensity *= 1 - this.weather.intensity * 0.67;
     if (this.scene.fog instanceof THREE.FogExp2) this.scene.fog.density += this.weather.intensity * 0.0015;
     this.city.setNight(this.dayNight.night);
@@ -3128,7 +3199,7 @@ export class Game {
     this.updateAmbientLayers(dt);
 
     this.physics.step(dt);
-    this.particles.update(dt);
+    this.particles.update(dt, this.camera.quaternion);
     this.ballistics.update(dt);
     this.net.advance(dt);
     this.remotes?.update(dt);
@@ -3180,6 +3251,8 @@ export class Game {
         charge: this.axe.state === 'windup' ? this.axe.charge : 0,
         overcharge: this.axe.overcharge,
         axeState: this.axe.state,
+        axeName: this.axe.spec.name,
+        axeShort: this.axe.spec.short,
         pullProgress: this.axe.pullProgress,
         zombiesAlive: zAlive,
         civiliansAlive: cAlive,
@@ -3306,7 +3379,7 @@ export class Game {
     const b = budgetFor(q, this.device);
     this.budget = b;
     this.physics.maxDolls = b.maxDolls;
-    this.dayNight.setQuality({ shadowMapSize: b.shadowMapSize, shadowRadius: b.shadowRadius, shadows: b.shadows });
+    this.dayNight.setQuality({ shadowMapSize: b.shadowMapSize, shadowRadius: b.shadowRadius, shadows: b.shadows, skyOctaves: b.tier === 'low' ? 3 : 5 });
     this.dayNight.fogBase = b.fogDensity;
     this.renderer.shadowMap.enabled = b.shadows;
     this.renderer.shadowMap.type = b.shadows ? THREE.PCFSoftShadowMap : THREE.BasicShadowMap;

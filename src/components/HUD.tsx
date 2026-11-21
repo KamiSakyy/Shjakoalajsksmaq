@@ -74,6 +74,7 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
         <Bar value={hud.stamina} color="#c6cbb1" label="СИЛЫ" icon="/" />
         {hud.armor > 0.5 && <Bar value={(hud.armor / hud.armorMax) * 100} color="#6f9fd8" label="БРОНЯ" icon="▲" />}
         {hud.weapon === 'axe' && <Bar value={hud.sharpness * 100} color="#bea77d" label="ЛЕЗВИЕ" icon="|" />}
+        {hud.weapon === 'axe' && <div className="hud-axe">{hud.axeShort}</div>}
         <div className="hud-level">УРОВЕНЬ {hud.level}<span>{hud.kills} УСТРАНЕНО</span><span className="hud-packs">ПАКЕТЫ {hud.packages}/{hud.packagesTotal}</span></div>
         <button type="button" className="hud-cash pointer-events-auto" onClick={onPhone} title="Открыть телефон (P)">
           <b>${Math.round(hud.cash).toLocaleString('ru-RU')}</b><span>телефон</span>

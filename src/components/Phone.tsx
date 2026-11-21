@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Game, HudState, Quality } from '../game/Game';
 import { formatMoney } from '../game/economy';
 import { SHOP_SECTIONS, SHOP } from '../game/shop';
+import { AXES, type AxeSpec } from '../game/axes';
 
-type AppId = 'missions' | 'shop' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings' | 'profile';
+type AppId = 'axes' | 'missions' | 'shop' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings' | 'profile';
 
 interface Props {
   game: Game | null;
@@ -17,6 +18,7 @@ interface Props {
 }
 
 const APPS: { id: AppId; label: string; glyph: string; tone: string }[] = [
+  { id: 'axes', label: 'Топоры', glyph: '⚒', tone: '#ff8a5c' },
   { id: 'missions', label: 'Миссии', glyph: '★', tone: '#ff6b6b' },
   { id: 'shop', label: 'Магазин', glyph: '⌂', tone: '#f0a05a' },
   { id: 'wallet', label: 'Кошелёк', glyph: '$', tone: '#43d9a3' },
@@ -26,6 +28,36 @@ const APPS: { id: AppId; label: string; glyph: string; tone: string }[] = [
   { id: 'profile', label: 'Профиль', glyph: '◈', tone: '#53e0b0' },
   { id: 'settings', label: 'Настройки', glyph: '⚙', tone: '#9aa4b2' },
 ];
+
+function AxeCard({ spec, current, onTake }: { spec: AxeSpec; current: boolean; onTake: () => void }) {
+  const bar = (label: string, value: number, max: number) => (
+    <div className="axe-bar" key={label}>
+      <small>{label}</small>
+      <i><b style={{ width: `${Math.min(100, (value / max) * 100)}%` }} /></i>
+    </div>
+  );
+  return (
+    <div className={`phone-card axe-card ${current ? 'on' : ''}`}>
+      <div className="axe-head">
+        <div>
+          <b>{spec.name}</b>
+          <small>{spec.short} · {(spec.L * 100).toFixed(0)} см · {spec.headMass.toFixed(2)} кг</small>
+        </div>
+        <span className="axe-power">{spec.power}<em>/10</em></span>
+      </div>
+      <div className="axe-bars">
+        {bar('МОЩЬ', spec.power, 10)}
+        {bar('СКОРОСТЬ', spec.speed, 1.6)}
+        {bar('РЕЗ', spec.cut, 2)}
+        {bar('ВЕС', spec.headMass + spec.handleMass, 6)}
+      </div>
+      <p>{spec.desc}</p>
+      <button className={`phone-action ${current ? 'ghost' : ''}`} disabled={current} onClick={onTake}>
+        {current ? 'В РУКАХ' : 'ВЗЯТЬ БЕСПЛАТНО'}
+      </button>
+    </div>
+  );
+}
 
 function QuestCard({ title, giver, district, brief, objectives, reward, progress, onAccept, acceptLabel }: {
   title: string; giver: string; district: string; brief: string; objectives: string[]; reward: number;
@@ -93,8 +125,8 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
           <div className="phone-wallpaper" />
           <header className="phone-head">
             <div>
-              <small>{app === 'missions' ? 'ЗАДАНИЯ' : app === 'shop' ? 'МАГАЗИН' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'profile' ? 'ПРОФИЛЬ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
-              <h3>{app === 'missions' ? 'Телефон' : app === 'shop' ? 'Vice Motors' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'profile' ? `Уровень ${hud.level}` : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
+              <small>{app === 'axes' ? 'АРСЕНАЛ' : app === 'missions' ? 'ЗАДАНИЯ' : app === 'shop' ? 'МАГАЗИН' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'profile' ? 'ПРОФИЛЬ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
+              <h3>{app === 'axes' ? 'Топоры' : app === 'missions' ? 'Телефон' : app === 'shop' ? 'Vice Motors' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'profile' ? `Уровень ${hud.level}` : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
             </div>
             <button className="phone-x" onClick={onClose} aria-label="Закрыть телефон">✕</button>
           </header>
@@ -167,6 +199,23 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
                   </div>
                 ))}
               </>}
+            </>}
+
+            {app === 'axes' && <>
+              <div className="phone-card axe-intro">
+                <b>Арсенал · всё бесплатно</b>
+                <p>Десять топоров, и каждый рубит по-своему: топорик вскрывает, бардиш сносит голову с полутора метров, кувалда ломает кости, но вязнет в мясе. Выдаём прямо из машины.</p>
+                <div className="axe-strip">{AXES.map(a => <i key={a.id} style={{ opacity: 0.3 + a.power * 0.07 }} />)}</div>
+              </div>
+              {AXES.map(a => (
+                <AxeCard key={a.id} spec={a} current={hud.axeName === a.name}
+                  onTake={() => {
+                    const r = game?.equipAxe(a.id);
+                    if (r && !r.ok) game?.setLog(`ТОПОР · ${r.message}`);
+                    setTick(v => v + 1);
+                  }} />
+              ))}
+              <p className="phone-hint">Тяжёлый топор бьёт сильнее, но замах дольше и сил уходит больше. Руби по шее и плечам — там отсекается лучше всего.</p>
             </>}
 
             {app === 'wallet' && <>

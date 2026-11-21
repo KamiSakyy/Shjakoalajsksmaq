@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Material } from './audio';
 import type { Textures } from './materials';
+import { AXE_BY_ID, DEFAULT_AXE, buildAxe, type AxeSpec } from './axes';
 
 export type AxeState = 'idle' | 'windup' | 'strike' | 'recover' | 'stuck' | 'left';
 
@@ -33,11 +34,13 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export class Axe {
   // ===== физика =====
+  spec: AxeSpec = AXE_BY_ID.get(DEFAULT_AXE)!;
   L = 0.82; // длина рукояти, м
   mHead = 1.7; // кг — тяжёлая голова
   mHandle = 0.9; // кг — рукоять
   I: number; // момент инерции относительно хвата
   gravArm: number; // m*L для момента силы тяжести
+  private Iref = 1.345; // инерция эталонного топора — база для крутящего момента
 
   theta = -0.5; // угол в плоскости удара (рад); + назад за плечо, − вперёд/вниз
   omega = 0; // угловая скорость
@@ -87,8 +90,8 @@ export class Axe {
   handR: THREE.Mesh;
   foreL: THREE.Mesh;
   foreR: THREE.Mesh;
-  bloodMesh: THREE.Mesh;
-  edgeMesh: THREE.Mesh;
+  bloodMesh!: THREE.Mesh;
+  edgeMesh!: THREE.Mesh;
   handSlide = 0.38; // позиция верхней руки по рукояти
   handSlideTarget = 0.38;
 
@@ -114,7 +117,7 @@ export class Axe {
   private X = new THREE.Vector3(1, 0, 0);
   private Z = new THREE.Vector3(0, 0, 1);
 
-  constructor(public camera: THREE.Camera, public scene: THREE.Scene, tex: Textures) {
+  constructor(public camera: THREE.Camera, public scene: THREE.Scene, private tex: Textures) {
     this.I = this.mHead * this.L * this.L + (this.mHandle * this.L * this.L) / 3;
     this.gravArm = (this.mHead * this.L + (this.mHandle * this.L) / 2) * 9.81;
 
@@ -122,54 +125,6 @@ export class Axe {
     this.rig.position.copy(this.rigBase);
     this.rig.add(this.pivot);
     this.pivot.add(this.axeRoot);
-
-    // ---- модель топора ----
-    const handleMat = new THREE.MeshStandardMaterial({ map: tex.handleWood, roughness: 0.8, metalness: 0 });
-    const handleGeo = new THREE.CylinderGeometry(0.016, 0.022, this.L, 12, 1);
-    const handle = new THREE.Mesh(handleGeo, handleMat);
-    handle.position.y = this.L / 2;
-    handle.castShadow = true;
-    this.axeRoot.add(handle);
-    // утолщение внизу
-    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 8), handleMat);
-    knob.scale.set(1, 0.7, 1.1);
-    knob.position.y = 0.01;
-    this.axeRoot.add(knob);
-    // обмотка под хват
-    const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.0245, 0.026, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0x2a2320, roughness: 0.95 }));
-    wrap.position.y = 0.14;
-    this.axeRoot.add(wrap);
-
-    // голова — профиль «бородатого» топора в плоскости YZ, лезвие в −Z
-    const shape = new THREE.Shape();
-    const pts: [number, number][] = [
-      [0.035, 0.035], [0.04, -0.055], [0.012, -0.068], [-0.03, -0.075], [-0.075, -0.13], [-0.14, -0.125],
-      [-0.152, -0.02], [-0.138, 0.075], [-0.06, 0.05], [-0.01, 0.042],
-    ];
-    shape.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
-    shape.closePath();
-    const headGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.03, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.008, bevelSegments: 2 });
-    headGeo.rotateY(-Math.PI / 2);
-    headGeo.translate(0.027, 0, 0);
-    const metalMat = new THREE.MeshStandardMaterial({ map: tex.metal, color: 0x9ea2a8, roughness: 0.45, metalness: 0.85 });
-    const head = new THREE.Mesh(headGeo, metalMat);
-    head.position.y = this.L - 0.03;
-    head.castShadow = true;
-    this.axeRoot.add(head);
-    // заточенная кромка — полированная полоска
-    this.edgeMesh = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.2, 0.012), new THREE.MeshStandardMaterial({ color: 0xe8ecf0, roughness: 0.15, metalness: 1 }));
-    this.edgeMesh.position.set(0, this.L - 0.03 - 0.025, -0.146);
-    this.edgeMesh.rotation.x = 0.12;
-    this.axeRoot.add(this.edgeMesh);
-    // кровь на лезвии
-    this.bloodMesh = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.2, 0.1), new THREE.MeshStandardMaterial({ color: 0x5a0410, roughness: 0.3, transparent: true, opacity: 0, depthWrite: false }));
-    this.bloodMesh.position.set(0, this.L - 0.03 - 0.03, -0.1);
-    this.axeRoot.add(this.bloodMesh);
-    // клин
-    const wedge = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.03, 0.04), new THREE.MeshStandardMaterial({ color: 0x555a60, roughness: 0.5, metalness: 0.8 }));
-    wedge.position.y = this.L + 0.01;
-    this.axeRoot.add(wedge);
 
     // ---- руки ----
     const skinMat = new THREE.MeshStandardMaterial({ color: 0xb98a66, roughness: 0.75 });
@@ -197,24 +152,7 @@ export class Axe {
     this.armR = a2.g; this.foreR = a2.fore; this.handR = a2.hand;
     camera.add(this.armL, this.armR);
 
-    // ---- коллайдер лезвия: точки вдоль кромки + рукоять ----
-    const hy = this.L - 0.03 - 0.025;
-    for (let i = 0; i <= 5; i++) {
-      const t = i / 5;
-      this.sampleLocal.push({ y: hy - 0.1 + t * 0.2, z: -0.146 + Math.sin(t * Math.PI) * -0.006, d: hy, isBlade: true });
-    }
-    this.sampleLocal.push({ y: this.L + 0.02, z: -0.08, d: this.L, isBlade: true }); // носок
-    this.sampleLocal.push({ y: this.L * 0.35, z: 0, d: this.L * 0.35, isBlade: false });
-    this.sampleLocal.push({ y: this.L * 0.6, z: 0, d: this.L * 0.6, isBlade: false });
-    this.sampleLocal.push({ y: this.L * 0.85, z: 0.03, d: this.L * 0.85, isBlade: false });
-    for (const s of this.sampleLocal) {
-      void s;
-      this.samples.push({ pos: new THREE.Vector3(), prev: new THREE.Vector3(), d: 0, isBlade: false, valid: false });
-    }
-    this.updatePose();
-    this.refreshSamples(true);
-
-    // след лезвия
+    // ---- след лезвия (до первого equip: поза уже его использует) ----
     const tg = new THREE.BufferGeometry();
     this.trailPos = new THREE.Float32BufferAttribute(new Float32Array(this.trailCount * 3), 3);
     tg.setAttribute('position', this.trailPos);
@@ -223,6 +161,68 @@ export class Axe {
     this.trail.frustumCulled = false;
     for (let i = 0; i < this.trailCount; i++) this.trailLife.push(0);
     scene.add(this.trail);
+
+    // ---- точка коллайдера и модель собираются под конкретный топор ----
+    this.equip(this.spec, true);
+
+  }
+
+  /**
+   * Взять другой топор: пересобираем голову и рукоять, пересчитываем инерцию,
+   * точки коллайдера кромки и посадку в руках.
+   */
+  equip(spec: AxeSpec, initial = false) {
+    this.spec = spec;
+    this.L = spec.L;
+    this.mHead = spec.headMass;
+    this.mHandle = spec.handleMass;
+    this.I = this.mHead * this.L * this.L + (this.mHandle * this.L * this.L) / 3;
+    this.gravArm = (this.mHead * this.L + (this.mHandle * this.L) / 2) * 9.81;
+
+    // чистим прошлую модель
+    for (const child of [...this.axeRoot.children]) {
+      this.axeRoot.remove(child);
+      const m = child as THREE.Mesh;
+      m.geometry?.dispose();
+      const mat = m.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach(x => x.dispose());
+      else mat?.dispose();
+    }
+    const built = buildAxe(spec, this.tex);
+    for (const child of [...built.root.children]) this.axeRoot.add(child);
+    built.root.clear();
+    this.bloodMesh = built.blood;
+    this.edgeMesh = built.edge;
+
+    // посадка: длинные топоры держим дальше от лица
+    this.rigBase.set(0.12, -0.46 - Math.max(0, spec.L - 0.8) * 0.22, -0.44 - Math.max(0, spec.L - 0.8) * 0.16);
+    this.rig.position.copy(this.rigBase);
+
+    // точки кромки под новую геометрию
+    const bladeZ = -spec.bladeW * 0.97;
+    const hy = built.headY;
+    this.sampleLocal.length = 0;
+    for (let i = 0; i <= 5; i++) {
+      const t = i / 5;
+      this.sampleLocal.push({ y: built.edgeY0 + t * (built.edgeY1 - built.edgeY0), z: bladeZ + Math.sin(t * Math.PI) * -0.006, d: hy, isBlade: true });
+    }
+    this.sampleLocal.push({ y: built.tipY, z: -spec.bladeW * 0.62, d: this.L, isBlade: true });
+    this.sampleLocal.push({ y: this.L * 0.35, z: 0, d: this.L * 0.35, isBlade: false });
+    this.sampleLocal.push({ y: this.L * 0.6, z: 0, d: this.L * 0.6, isBlade: false });
+    this.sampleLocal.push({ y: this.L * 0.85, z: 0.03, d: this.L * 0.85, isBlade: false });
+
+    // список мировых сэмплов должен совпадать по длине с локальным
+    this.samples.length = 0;
+    for (let i = 0; i < this.sampleLocal.length; i++) {
+      this.samples.push({ pos: new THREE.Vector3(), prev: new THREE.Vector3(), d: 0, isBlade: false, valid: false });
+    }
+
+    this.state = 'idle';
+    this.theta = this.thetaIdle;
+    this.omega = 0;
+    this.sharpness = Math.max(this.sharpness, initial ? 1 : this.sharpness);
+    this.updatePose();
+    this.refreshSamples(true);
   }
 
   setVisible(v: boolean) {
@@ -282,13 +282,16 @@ export class Axe {
     this.charge = q;
     this.bodyBonus = clamp((this.holdTime - 0.35) / 0.8, 0, 1) * 0.22;
     const staminaF = 0.5 + 0.5 * clamp(this.stamina / 100, 0, 1);
-    this.strikeTorque = 135 * staminaF * (1 + this.bodyBonus);
+    // тяжёлый топор разгоняется медленнее: момент масштабируем по инерции,
+    // иначе кувалда просто не долетала бы до цели
+    const inertiaF = this.I / this.Iref;
+    this.strikeTorque = 135 * staminaF * (1 + this.bodyBonus) * inertiaF * this.spec.speed;
     // неточный хват: слабый/торопливый или перетянутый замах → лезвие уходит с линии
     const sloppy = (1 - q) * 0.5 + this.overcharge * 0.5 + (1 - staminaF) * 0.4;
     this.rollTarget = (Math.random() - 0.5) * 2 * sloppy * 1.1;
     this.state = 'strike';
     this.handSlideTarget = 0.16;
-    this.stamina = Math.max(0, this.stamina - 6 - 16 * q);
+    this.stamina = Math.max(0, this.stamina - (6 + 16 * q) * this.spec.stamina);
     this.swingPower = q;
     this.whooshed = false;
     this.feedback?.fovPunch(0.04 + 0.08 * q);
@@ -454,7 +457,7 @@ export class Axe {
     em.color.setScalar(0.6 + 0.4 * this.sharpness);
 
     // выносливость
-    if (this.state === 'windup') this.stamina = Math.max(0, this.stamina - dt * (10 + this.overcharge * 25));
+    if (this.state === 'windup') this.stamina = Math.max(0, this.stamina - dt * (10 + this.overcharge * 25) * this.spec.stamina);
     else if (this.state === 'idle') this.stamina = Math.min(100, this.stamina + dt * 16);
     else this.stamina = Math.min(100, this.stamina + dt * 7);
 
