@@ -883,3 +883,83 @@ kbd { font-family: inherit; background: #d6ddc913; border: 1px solid #a6b19822; 
 .axe-card p { margin: 0; font-size: 11px; line-height: 1.45; color: #b7bfcc; }
 .phone-action.ghost:disabled { opacity: 0.55; }
 .hud-axe { font-size: 9px; letter-spacing: 0.12em; color: #e2b08a; margin-top: -2px; }
+
+/* ===== Мио Такамия: форма Первого Духа ===== */
+.mio-btn {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 15%; z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 9px 15px 9px 13px; border-radius: 13px; cursor: pointer;
+  border: 1px solid rgba(255, 214, 140, 0.55);
+  background: linear-gradient(150deg, rgba(255, 208, 122, 0.22), rgba(28, 22, 34, 0.86));
+  box-shadow: 0 0 22px rgba(255, 196, 110, 0.28), inset 0 0 18px rgba(255, 210, 130, 0.12);
+  color: #ffe7bd; backdrop-filter: blur(6px);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+.mio-btn:hover { transform: translateX(-50%) translateY(-1px); box-shadow: 0 0 30px rgba(255, 200, 120, 0.45); }
+.mio-btn b { font-size: 15px; letter-spacing: 0.22em; }
+.mio-btn span { font-size: 8.5px; letter-spacing: 0.12em; color: #cbb794; text-transform: uppercase; }
+
+.mio-panel {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 14%; z-index: 6; width: min(440px, calc(100vw - 24px));
+  max-height: 48dvh; overflow-y: auto;
+  padding: 11px 12px 9px; border-radius: 16px;
+  border: 1px solid rgba(255, 214, 140, 0.42);
+  background: linear-gradient(165deg, rgba(38, 28, 44, 0.9), rgba(14, 12, 20, 0.94));
+  box-shadow: 0 0 34px rgba(255, 196, 110, 0.22), inset 0 0 22px rgba(255, 214, 140, 0.07);
+  backdrop-filter: blur(9px); color: #f3e7d3;
+}
+.mio-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mio-head b { font-size: 12px; letter-spacing: 0.16em; color: #ffe6b8; }
+.mio-head span { display: block; font-size: 8px; letter-spacing: 0.16em; color: #a89a86; margin-top: 2px; }
+.mio-head button {
+  padding: 5px 10px; border-radius: 9px; font-size: 8.5px; letter-spacing: 0.12em; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.06); color: #e8dcc6;
+}
+.mio-head button:hover { background: rgba(255, 255, 255, 0.14); }
+.mio-energy { position: relative; height: 6px; margin: 8px 0 9px; border-radius: 4px; background: rgba(255, 255, 255, 0.09); overflow: hidden; }
+.mio-energy i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #ffe2a0, #ffb03a); box-shadow: 0 0 12px rgba(255, 190, 90, 0.8); transition: width 0.15s linear; }
+.mio-energy span { position: absolute; right: 4px; top: -14px; font-size: 8px; letter-spacing: 0.12em; color: #d8c9ae; }
+.mio-slots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.mio-slot {
+  position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 5px 2px 4px; border-radius: 8px; cursor: pointer;
+  border: 1px solid rgba(255, 214, 140, 0.3); background: rgba(255, 214, 140, 0.08); color: #f4e6cf;
+}
+.mio-slot:hover { background: rgba(255, 214, 140, 0.2); }
+.mio-slot b { font-size: 10px; letter-spacing: 0.08em; color: #ffd88f; }
+.mio-slot small { font-size: 7px; letter-spacing: 0.04em; color: #b6a894; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mio-slot i { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(10, 8, 14, 0.72); }
+.mio-slot.cool { opacity: 0.62; }
+.mio-hint { margin: 8px 0 0; font-size: 8px; line-height: 1.45; letter-spacing: 0.05em; color: #9186a0; }
+
+.phone-card.mio-app { background: linear-gradient(160deg, rgba(255, 214, 140, 0.2), rgba(22, 18, 28, 0.9)); }
+.phone-card.mio-app.on { border-color: rgba(255, 214, 140, 0.7); box-shadow: 0 0 0 1px rgba(255, 214, 140, 0.35), 0 12px 26px rgba(0, 0, 0, 0.45); }
+.mio-app-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mio-app-top b { font-size: 14px; color: #ffe7bd; }
+.mio-app-top small { display: block; font-size: 9.5px; letter-spacing: 0.06em; color: #b1a492; margin-top: 2px; }
+.mio-app-glyph { font-size: 22px; color: #ffd479; text-shadow: 0 0 16px rgba(255, 200, 110, 0.8); }
+.mio-ability { gap: 6px; }
+.mio-ability-top { display: flex; align-items: center; gap: 8px; }
+.mio-ability-key {
+  width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; font-size: 10px; font-weight: 700;
+  color: #241c14; background: linear-gradient(150deg, #ffe2a8, #ffb545);
+}
+.mio-ability-top b { font-size: 11.5px; }
+.mio-ability-top small { display: block; font-size: 8.5px; color: #9d9184; }
+.mio-ability-cost { margin-left: auto; font-size: 9px; color: #ffd479; white-space: nowrap; }
+.mio-ability p { margin: 0; font-size: 10.5px; line-height: 1.45; color: #b6aea3; }
+.phone-action.ghost { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.18); }
+
+/* Кнопка «стать Мио» в главном меню */
+.launch-mio {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  padding: 11px 17px; border-radius: 4px; cursor: pointer;
+  border: 1px solid rgba(255, 214, 140, 0.5);
+  background: linear-gradient(150deg, rgba(255, 206, 122, 0.18), rgba(20, 16, 24, 0.82));
+  color: #ffe7bd; box-shadow: 0 0 24px rgba(255, 200, 120, 0.2);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.launch-mio:hover { transform: translateY(-2px); border-color: rgba(255, 226, 170, 0.85); box-shadow: 0 0 34px rgba(255, 205, 120, 0.4); }
+.launch-mio b { font-family: var(--font-display); font-size: 18px; letter-spacing: 0.2em; }
+.launch-mio span { font-size: 7.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #c9b795; }
+.launch-mio:disabled { opacity: 0.55; cursor: default; }

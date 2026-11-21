@@ -46,6 +46,7 @@ import { NetClock, RemoteActors, encodeSnapshot, decodeSnapshot, type NetSnapsho
 import { WORLD_SEED, worldSignature } from './worldgen';
 import { SHOP_BY_ID } from './shop';
 import { AXES, AXE_BY_ID, DEFAULT_AXE, severProfile } from './axes';
+import { Mio, MIO_ABILITIES } from './mio';
 
 export type Weapon = 'axe' | 'pistol' | 'shotgun';
 export type { GameMode } from './modes';
@@ -63,6 +64,10 @@ export interface HudState {
   axeState: string;
   axeName: string;
   axeShort: string;
+  mioActive: boolean;
+  mioEnergy: number;
+  mioCooldowns: number[];
+  mioLast: string;
   pullProgress: number;
   zombiesAlive: number;
   civiliansAlive: number;
@@ -208,6 +213,8 @@ export class Game {
   scene = new THREE.Scene();
   camera: THREE.PerspectiveCamera;
   private weaponView = new THREE.PerspectiveCamera();
+  /** Камера от первого лица — Мио вешает на неё клинок света. */
+  get fpCamera() { return this.weaponView; }
   city: City;
   traffic: Traffic;
   dayNight: DayNight;
@@ -370,6 +377,9 @@ export class Game {
   carCamDist = 7.2;
   driveBtn = { left: false, right: false, gas: false, brake: false };
   onFootCam = 0; // 0 — от первого лица, 1 — от третьего (за плечом)
+  /** Первый Дух: Мио Такамия. */
+  mio!: Mio;
+  mioKeys = { up: false, down: false };
   private tpPos: THREE.Vector3 | null = null;
   spawnTimer = 0;
   fps = 60;
@@ -420,6 +430,7 @@ export class Game {
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera, this.weaponView);
     this.playerRig = createCharacter('human', 'normal', 4);
+    this.mio = new Mio(this, this.scene, this.playerRig);
     this.handWeapon.position.set(0, -0.29, 0.03);
     this.handWeapon.rotation.set(-0.15, 0, 0);
     this.handWeapon.visible = false;
@@ -615,12 +626,17 @@ export class Game {
         if (e.code === 'KeyE') this.cycleWeapon();
         if (e.code === 'KeyR') { if (this.vehicle) this.serviceCar(); else this.reload(); }
         if (e.code === 'KeyC') this.vehicle ? this.cycleCarCamera() : this.toggleOnFootCam();
-        if (e.code === 'KeyX') this.setStance(this.stance === 'crouch' ? 'stand' : 'crouch');
+        if (e.code === 'KeyX' && !(this.mio.active && this.mio.flying)) this.setStance(this.stance === 'crouch' ? 'stand' : 'crouch');
         if (e.code === 'KeyZ') this.setStance(this.stance === 'prone' ? 'stand' : 'prone');
         if (e.code === 'KeyQ') this.toggleAds();
         if (e.code === 'KeyG') this.throwProjectile();
         if (e.code === 'KeyT') this.cycleThrowable();
-        if (e.code === 'KeyH') this.horn();
+        if (e.code === 'KeyH') { if (this.mio.active) this.mioCast(9); else this.horn(); }
+        if (e.code === 'KeyV') this.toggleMio();
+      }
+      if (e.type === 'keydown' && !e.repeat && this.running && !this.paused && this.mio.active && /^Digit[0-9]$/.test(e.code)) {
+        const d = Number(e.code.slice(5));
+        this.mioCast(d === 0 ? 10 : d - 1);
       }
     } else this.keys.delete(e.code);
     if (e.code === 'ShiftLeft') this.sprint = e.type === 'keydown';
@@ -1518,6 +1534,7 @@ export class Game {
   /** Кнопка прыжка с тача. */
   jump() {
     if (this.vehicle || this.gameOver) return;
+    if (this.mio.active && this.mio.flying) { this.mio.impulseUp(); return; }
     this.jumpQueued = true;
     if (this.onGround) {
       const climbing = this.parkour.state === 'climb' || this.parkour.state === 'wallrun';
@@ -1901,6 +1918,7 @@ export class Game {
 
   /** Урон игроку с учётом брони. */
   damage(amount: number) {
+    if (this.mio.active && !this.gameOver) { this.mio.absorb(amount); return; }
     let n = amount;
     if (this.armor > 0) {
       const absorb = Math.min(this.armor, n * 0.7);
@@ -2246,6 +2264,42 @@ export class Game {
     if (next >= 1) { m[part] = 0; return true; }
     m[part] = next;
     return false;
+  }
+
+  // ===== Мио Такамия =====
+  get mioAbilities() { return MIO_ABILITIES; }
+
+  /** Вспышка экрана (свет ангела). */
+  flash(v: number) { this.atmosphere.flash = Math.min(1.4, Math.max(this.atmosphere.flash, v)); }
+
+  /** Превращение в Первого Духа и обратно. */
+  toggleMio(force?: boolean) {
+    if (this.gameOver) return false;
+    const next = force ?? !this.mio.active;
+    if (next && this.vehicle) this.exitCar();
+    const on = this.mio.toggle(next);
+    if (on) {
+      this.stance = 'stand';
+      this.weapon = 'axe';
+      this.axe.cancel();
+      this.mioKeys.up = this.mioKeys.down = false;
+      this.parkour.cancel();
+      // превращение показываем от третьего лица — видно крылья и платье
+      if (this.onFootCam === 0) this.toggleOnFootCam();
+      this.playerRig.root.visible = true;
+    }
+    return on;
+  }
+
+  /** Каст ангела по слоту (0…10). */
+  mioCast(index: number) { return this.mio.cast(index); }
+
+  /** Убийство силой духа — с опытом, деньгами и розыском, как обычное. */
+  mioKill(n: Npc) {
+    this.registerKill(n);
+    this.gore.jet(n.position().clone().setY(n.position().getComponent(1) + 1), new THREE.Vector3(0, 1, 0), 1.4);
+    this.addXp(6);
+    this.mio.kills++;
   }
 
   private npcDamage(part: PartName, depth: number) {
@@ -2898,10 +2952,10 @@ export class Game {
     this.weaponSwitch = Math.max(0, this.weaponSwitch - dt * 4);
     const inVehicle = !!this.vehicle;
     const firstPerson = !inVehicle && this.onFootCam === 0;
-    this.axe.setVisible(this.weapon === 'axe' && firstPerson);
+    this.axe.setVisible(this.weapon === 'axe' && firstPerson && !this.mio.active);
     const handsFree = !this.phoneOpen;
-    this.pistol.group.visible = this.weapon === 'pistol' && firstPerson && handsFree;
-    this.shotgun.group.visible = this.weapon === 'shotgun' && firstPerson && handsFree;
+    this.pistol.group.visible = this.weapon === 'pistol' && firstPerson && handsFree && !this.mio.active;
+    this.shotgun.group.visible = this.weapon === 'shotgun' && firstPerson && handsFree && !this.mio.active;
     this.playerRig.root.visible = !inVehicle && this.onFootCam === 1;
     this.syncHandWeapon();
 
@@ -2922,18 +2976,22 @@ export class Game {
     // день/ночь
     this.dayNight.cloudCover = 0.36 + this.weather.intensity * 0.52;
     this.dayNight.update(dt, this.pos, this.scene);
-    // Глаз адаптируется к тени облака: под тучей картинка не проваливается в
-    // чёрное, а становится мягче — как в жизни.
-    const baseExp = this.budget.tier === 'low' ? 1.06 : 1.02;
-    this.renderer.toneMappingExposure = baseExp * (1 + this.dayNight.sunOcclusion * 0.07);
+    // Экспозиция держит картинку читаемой под облаком (см. финальную строку ниже).
     this.dayNight.sun.intensity *= 1 - this.weather.intensity * 0.67;
     if (this.scene.fog instanceof THREE.FogExp2) this.scene.fog.density += this.weather.intensity * 0.0015;
     this.city.setNight(this.dayNight.night);
     this.traffic.setNight(this.dayNight.night);
-    this.renderer.toneMappingExposure = 0.98 - this.dayNight.sunOcclusion * 0.18 - this.weather.intensity * 0.055;
+    // глаз адаптируется: под облаком кадр темнеет лишь слегка, а не проваливается
+    const cloudAdapt = 1 + this.dayNight.sunOcclusion * 0.07;
+    this.renderer.toneMappingExposure = (0.98 - this.dayNight.sunOcclusion * 0.12 - this.weather.intensity * 0.055) * cloudAdapt;
 
-    // машина или пешком
+    // ввод духа
+    this.mioKeys.up = this.keys.has('Space');
+    this.mioKeys.down = this.keys.has('KeyX') || this.keys.has('ControlLeft');
+    this.mio.update(dt);
+    // машина, полёт или пешком
     if (this.vehicle) this.driveCar(dt);
+    else if (this.mio.active && this.mio.flying) this.mio.fly(dt);
     else this.updatePlayer(dt);
     this.updateCamera(dt);
     this.camera.updateMatrixWorld(true);
@@ -3253,6 +3311,10 @@ export class Game {
         axeState: this.axe.state,
         axeName: this.axe.spec.name,
         axeShort: this.axe.spec.short,
+        mioActive: this.mio.active,
+        mioEnergy: this.mio.energy / this.mio.maxEnergy,
+        mioCooldowns: this.mio.cooldowns.slice(),
+        mioLast: this.mio.lastCast,
         pullProgress: this.axe.pullProgress,
         zombiesAlive: zAlive,
         civiliansAlive: cAlive,

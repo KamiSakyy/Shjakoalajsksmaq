@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { HudState } from '../game/Game';
+import { MIO_ABILITIES } from '../game/mio';
 import { formatDistance, routeDistance, locationName } from '../game/city-plan';
 import { paintRadar, MapIcon, type RadarFrame } from './CityMap';
 
@@ -13,6 +14,8 @@ interface Props {
   radar: RadarFrame | null;
   onMap: () => void;
   onPhone: () => void;
+  onMio: () => void;
+  onMioCast: (index: number) => void;
   mapEnabled: boolean;
 }
 
@@ -20,7 +23,7 @@ function Bar({ value, color, label, icon }: { value: number; color: string; labe
   return <div className="vital-row"><span className="vital-symbol">{icon}</span><div className="vital-track"><div style={{ width: `${Math.max(0, Math.min(100, value))}%`, background: color }} /></div><span className="vital-label">{label}</span></div>;
 }
 
-export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }: Props) {
+export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, onMio, onMioCast, mapEnabled }: Props) {
   const stuck = hud.axeState === 'stuck';
   const left = hud.axeState === 'left';
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -112,6 +115,36 @@ export function HUD({ hud, drops, hurt, log, radar, onMap, onPhone, mapEnabled }
       {hud.fires > 0 && <div className="fire-alert"><i />{hud.fires} {hud.fires === 1 ? 'ВОЗГОРАНИЕ' : 'ВОЗГОРАНИЯ'}<small>пожарная часть выехала</small></div>}
       {hud.nearEmergency && !hud.inCar && <div className="emergency-hint">{hud.nearEmergency === 'fire' ? 'ПОЖАРНАЯ МАШИНА' : 'СКОРАЯ ПОМОЩЬ'} · можно сесть за руль</div>}
       {log && <div key={log.id} className="hit-log hud-log">{log.text}</div>}
+      {hud.mioActive ? (
+        <div className="mio-panel pointer-events-auto">
+          <div className="mio-head">
+            <div><b>МИО ТАКАМИЯ</b><span>ПЕРВЫЙ ДУХ · AIN SOPH</span></div>
+            <button type="button" onClick={onMio} title="Вернуться в человека (V)">ЧЕЛОВЕК</button>
+          </div>
+          <div className="mio-energy">
+            <i style={{ width: `${Math.max(0, Math.min(1, hud.mioEnergy)) * 100}%` }} />
+            <span>ЭНЕРГИЯ {Math.round(hud.mioEnergy * 100)}%</span>
+          </div>
+          <div className="mio-slots">
+            {MIO_ABILITIES.map((a, i) => {
+              const cd = hud.mioCooldowns[i] ?? 0;
+              const ready = cd <= 0.001;
+              return (
+                <button key={a.id} type="button" className={`mio-slot ${ready ? '' : 'cool'}`} onClick={() => onMioCast(i)} title={`${a.name} — ${a.desc}`}>
+                  <b>{a.key}</b>
+                  <small>{a.name}</small>
+                  {!ready && <i style={{ height: `${Math.min(100, (cd / a.cd) * 100)}%` }} />}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mio-hint">1…9, 0 — ангелы · H — Ханиэль · ПРОБЕЛ вверх · X вниз · SHIFT ускорение · V назад</p>
+        </div>
+      ) : (
+        <button type="button" className="mio-btn pointer-events-auto" onClick={onMio} title="Превратиться в Мио Такамию (V)">
+          <b>МИО</b><span>стать Первым Духом</span>
+        </button>
+      )}
       {(stuck || left) && <div className="axe-notice"><strong>{stuck ? 'ТОПОР ЗАСТРЯЛ' : 'ТОПОР ОСТАЛСЯ ПОЗАДИ'}</strong><span>{stuck ? 'Нажимай кнопку удара, чтобы вытащить' : 'Вернись за своим оружием'}</span></div>}
     </div>
   );

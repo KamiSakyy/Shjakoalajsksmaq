@@ -3,8 +3,9 @@ import type { Game, HudState, Quality } from '../game/Game';
 import { formatMoney } from '../game/economy';
 import { SHOP_SECTIONS, SHOP } from '../game/shop';
 import { AXES, type AxeSpec } from '../game/axes';
+import { MIO_ABILITIES } from '../game/mio';
 
-type AppId = 'axes' | 'missions' | 'shop' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings' | 'profile';
+type AppId = 'mio' | 'axes' | 'missions' | 'shop' | 'wallet' | 'camera' | 'contacts' | 'map' | 'settings' | 'profile';
 
 interface Props {
   game: Game | null;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 const APPS: { id: AppId; label: string; glyph: string; tone: string }[] = [
+  { id: 'mio', label: 'Мио', glyph: '✧', tone: '#ffd479' },
   { id: 'axes', label: 'Топоры', glyph: '⚒', tone: '#ff8a5c' },
   { id: 'missions', label: 'Миссии', glyph: '★', tone: '#ff6b6b' },
   { id: 'shop', label: 'Магазин', glyph: '⌂', tone: '#f0a05a' },
@@ -125,8 +127,8 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
           <div className="phone-wallpaper" />
           <header className="phone-head">
             <div>
-              <small>{app === 'axes' ? 'АРСЕНАЛ' : app === 'missions' ? 'ЗАДАНИЯ' : app === 'shop' ? 'МАГАЗИН' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'profile' ? 'ПРОФИЛЬ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
-              <h3>{app === 'axes' ? 'Топоры' : app === 'missions' ? 'Телефон' : app === 'shop' ? 'Vice Motors' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'profile' ? `Уровень ${hud.level}` : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
+              <small>{app === 'mio' ? 'ПЕРВЫЙ ДУХ' : app === 'axes' ? 'АРСЕНАЛ' : app === 'missions' ? 'ЗАДАНИЯ' : app === 'shop' ? 'МАГАЗИН' : app === 'wallet' ? 'ФИНАНСЫ' : app === 'camera' ? 'КАМЕРА' : app === 'contacts' ? 'КОНТАКТЫ' : app === 'profile' ? 'ПРОФИЛЬ' : app === 'settings' ? 'НАСТРОЙКИ' : 'КАРТА'}</small>
+              <h3>{app === 'mio' ? 'Мио Такамия' : app === 'axes' ? 'Топоры' : app === 'missions' ? 'Телефон' : app === 'shop' ? 'Vice Motors' : app === 'wallet' ? formatMoney(hud.cash + hud.bank) : app === 'camera' ? 'Снимки' : app === 'contacts' ? 'Связь' : app === 'profile' ? `Уровень ${hud.level}` : app === 'settings' ? 'Графика' : 'Навигация'}</h3>
             </div>
             <button className="phone-x" onClick={onClose} aria-label="Закрыть телефон">✕</button>
           </header>
@@ -199,6 +201,47 @@ export function Phone({ game, hud, onClose, onOpenMap, quality, onQuality, photo
                   </div>
                 ))}
               </>}
+            </>}
+
+            {app === 'mio' && <>
+              <div className={`phone-card mio-app ${hud.mioActive ? 'on' : ''}`}>
+                <div className="mio-app-top">
+                  <div>
+                    <b>Мио Такамия</b>
+                    <small>崇宮 澪 · Первый Дух · Deus Ex Machina</small>
+                  </div>
+                  <span className="mio-app-glyph">✧</span>
+                </div>
+                <p>Та, из кого вышли все духи. Держит в руках всех ангелов сразу: свет Айн, королевский разрез Сандальфона, часы Зафкиэля, крылья Метатрона, гравитацию Михаэля — и «Айн Соф Аур», после которого не остаётся ничего.</p>
+                <button className="phone-action" onClick={() => { game?.toggleMio(); setTick(v => v + 1); }}>
+                  {hud.mioActive ? 'ВЕРНУТЬСЯ В ЧЕЛОВЕКА' : 'СТАТЬ МИО ТАКАМИЕЙ'}
+                </button>
+                <p className="phone-hint">Кнопка работает и из машины — Мио выходит из-за руля.</p>
+              </div>
+
+              <div className="phone-section-title">АНГЕЛЫ</div>
+              {MIO_ABILITIES.map((a, i) => (
+                <div className="phone-card mio-ability" key={a.id}>
+                  <div className="mio-ability-top">
+                    <span className="mio-ability-key">{a.key}</span>
+                    <div><b>{a.name}</b><small>{a.kanji} · {a.angel}</small></div>
+                    <span className="mio-ability-cost">{a.cost} ⚡</span>
+                  </div>
+                  <p>{a.desc}</p>
+                  <button className="phone-action ghost" onClick={() => { game?.mioCast(i); setTick(v => v + 1); }}>
+                    ПРИЗВАТЬ · {a.cost} энергии
+                  </button>
+                </div>
+              ))}
+
+              <div className="phone-section-title">ФОРМА</div>
+              <div className="phone-card small">
+                <div className="phone-spec"><span>Спиритуальная энергия</span><b>{Math.round(hud.mioEnergy * 100)}%</b></div>
+                <div className="phone-spec"><span>Полёт</span><b>{hud.mioActive ? 'да · Space вверх' : '—'}</b></div>
+                <div className="phone-spec"><span>Броня духа</span><b>урон гасится энергией</b></div>
+                <div className="phone-spec"><span>Последний ангел</span><b>{hud.mioLast || '—'}</b></div>
+              </div>
+              <p className="phone-hint">Серебряные волосы, белое с золотом платье, нимб и крылья света. Управление: V — форма, 1…0 — ангелы, ПРОБЕЛ/X — вверх/вниз, SHIFT — ускорение.</p>
             </>}
 
             {app === 'axes' && <>

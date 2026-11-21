@@ -159,6 +159,25 @@ export class AudioSys {
     this.noise({ dur: 0.25, freq: 120 + 200 * s, type: 'lowpass', gain: 0.05 + 0.1 * s, attack: 0.06, wet: 0.1 });
   }
 
+  /** Спиритуальный звук Мио: хрустальный аккорд + световая волна. */
+  spirit(power = 1) {
+    if (!this.ctx) return;
+    const p = Math.min(1, Math.max(0.1, power));
+    const base = 523.25 * (1 + p * 0.35);
+    [1, 1.5, 2, 3].forEach((mul, i) => {
+      this.tone({ freq: base * mul, freqEnd: base * mul * 1.02, dur: 0.9 + i * 0.25, gain: (0.12 - i * 0.02) * p, type: 'triangle', attack: 0.01, wet: 0.55, delay: i * 0.04 });
+    });
+    this.noise({ dur: 0.7, freq: 2200, freqEnd: 5200, type: 'bandpass', q: 2.2, gain: 0.1 * p, attack: 0.02, wet: 0.5 });
+  }
+
+  /** Удар ангела: низкий гул и всплеск света. */
+  angel(index: number) {
+    if (!this.ctx) return;
+    const f = 120 + index * 26;
+    this.tone({ freq: f, freqEnd: f * 0.45, dur: 0.7, gain: 0.5, type: 'sawtooth', attack: 0.005 });
+    this.noise({ dur: 0.9, freq: 400, freqEnd: 3800, q: 1.1, gain: 0.28, attack: 0.01, wet: 0.4 });
+  }
+
   impact(mat: Material, e01: number, depth = 0.5) {
     if (!this.ctx) return;
     const e = Math.min(1, Math.max(0.05, e01));

@@ -26,6 +26,7 @@ const initialHud: HudState = {
   molotovs: 3, grenades: 2, throwKind: 'molotov', parkour: 'none', height: 0, hitMarker: 0, hitHead: false, armor: 0, armorMax: 100,
   mode: 'normal', peers: 0, world: '00000000', phoneOpen: false,
   axeName: 'Аварийный топор', axeShort: 'АВАРИЙНЫЙ',
+  mioActive: false, mioEnergy: 1, mioCooldowns: [], mioLast: '',
 };
 type Panel = 'settings' | 'controls' | 'characters' | 'about' | 'map' | null;
 const WORLD_SIG = worldSignature({ seed: WORLD_SEED, v: 3 });
@@ -185,7 +186,7 @@ export default function App() {
   };
   const cycleRadio = () => gameRef.current?.radioCycle();
 
-  const start = async () => {
+  const start = async (asMio = false) => {
     if (loading || !canvasRef.current) return;
     setLoading(true); setError('');
     const stage = (progress: number, text: string) => setLoad({ progress, stage: text, tip: loadingTips[Math.floor(Math.random() * loadingTips.length)] });
@@ -222,6 +223,7 @@ export default function App() {
       await new Promise(resolve => setTimeout(resolve, 120));
       setStarted(true);
       g.start();
+      if (asMio) g.toggleMio(true);
       stage(100, 'Город готов');
       await new Promise(resolve => setTimeout(resolve, 220));
     } catch (e) {
@@ -283,7 +285,8 @@ export default function App() {
           </div>
           <p className="mode-description" key={mode}>{modes.find(m => m.id === mode)?.text}</p>
         </div>
-        <div className="launch-row"><button className="launch-button" onClick={start} disabled={loading}><span>{loading ? 'ГОТОВИМ ГОРОД' : 'ВОЙТИ В ГОРОД'}</span>{loading ? <span className="loading-ring" /> : <Icon name="arrow" size={25} />}</button><button className="launch-settings" onClick={() => setPanel('map')} aria-label="Карта города"><MapIcon name="map" size={19} /><span>Карта города</span></button></div>
+        <div className="launch-row"><button className="launch-button" onClick={() => start()} disabled={loading}><span>{loading ? 'ГОТОВИМ ГОРОД' : 'ВОЙТИ В ГОРОД'}</span>{loading ? <span className="loading-ring" /> : <Icon name="arrow" size={25} />}</button>
+          <button className="launch-mio" onClick={() => start(true)} disabled={loading} title="Симулятор Мио Такамии"><b>МИО</b><span>стать Первым Духом</span></button><button className="launch-settings" onClick={() => setPanel('map')} aria-label="Карта города"><MapIcon name="map" size={19} /><span>Карта города</span></button></div>
         {error && <p className="launch-error" role="alert">{error}</p>}
         <p className="platform-hint"><span className="key-cap">W A S D</span> или сенсорное управление <span className="hint-dot">/</span> Android · ПК</p>
         <p className="world-note">МИР <b>#{WORLD_SIG}</b> · СТАТИЧНЫЙ, ОДИН ДЛЯ ВСЕХ · ГОТОВ К ОНЛАЙНУ{hud.peers > 0 ? ` · В СЕТИ ${hud.peers}` : ''}</p>
@@ -292,7 +295,9 @@ export default function App() {
     </main>}
 
     {started && game && <>
-      <HUD hud={hud} drops={drops} hurt={hurt} log={log} radar={radar} onMap={() => setPanel('map')} onPhone={() => setPhone(true)} mapEnabled={!panel && !paused && !phone && !hud.gameOver} />
+      <HUD hud={hud} drops={drops} hurt={hurt} log={log} radar={radar} onMap={() => setPanel('map')} onPhone={() => setPhone(true)}
+        onMio={() => game?.toggleMio()} onMioCast={(i) => game?.mioCast(i)}
+        mapEnabled={!panel && !paused && !phone && !hud.gameOver} />
       {!paused && !panel && !phone && !hud.gameOver && <Controls game={game} hud={hud} />}
       <button className="pause-button" aria-label="Пауза" onClick={() => setPaused(true)}><Icon name="pause" size={16} /></button>
       <button className="tool-button fs-button" aria-label={fullscreen ? 'Выйти из полного экрана' : 'Полный экран'} onClick={toggleFullscreen}><Icon name={fullscreen ? 'exitfull' : 'full'} size={16} /></button>
