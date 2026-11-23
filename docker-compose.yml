@@ -1,0 +1,10 @@
+services:
+  asuna:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - asuna-data:/data
+    restart: unless-stopped
+volumes:
+  asuna-data:
