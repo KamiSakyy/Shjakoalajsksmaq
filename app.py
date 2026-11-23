@@ -1,4 +1,6 @@
 import logging
+import hmac
+import json
 import os
 import random
 import sqlite3
@@ -7,16 +9,23 @@ import time
 from urllib.parse import urlparse, urljoin
 
 import requests
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory
 
 DATA_DIR = os.environ.get('RAILWAY_VOLUME_MOUNT_PATH') or os.environ.get('DATA_DIR', './data')
 os.makedirs(DATA_DIR, exist_ok=True)
 DB_PATH = os.path.join(DATA_DIR, 'bot.sqlite3')
 app = Flask(__name__, static_folder='static')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 256 * 1024
 logging.basicConfig(level=logging.INFO)
 lock = threading.RLock()
 wake = threading.Event()
+revision = 0
+
+
+def invalidate_rotation():
+    global revision
+    revision += 1
+
 
 
 def db():
@@ -175,17 +184,18 @@ def poll_loop():
 SOURCES = (
     {'name': 'Danbooru', 'endpoint': 'https://danbooru.donmai.us/posts.json',
      'base': 'https://danbooru.donmai.us/', 'domain': 'donmai.us',
-     'tag': 'yuuki_asuna rating:general', 'page_key': 'page', 'first_page': 1,
+     'tags': {'asuna': 'yuuki_asuna -kirigaya_kazuto rating:general', 'kirito': 'kirigaya_kazuto -yuuki_asuna rating:general', 'together': 'yuuki_asuna kirigaya_kazuto rating:general'}, 'page_key': 'page', 'first_page': 1,
      'post_url': 'https://danbooru.donmai.us/posts/{}'},
     {'name': 'Safebooru', 'endpoint': 'https://safebooru.org/index.php',
      'base': 'https://safebooru.org/', 'domain': 'safebooru.org',
-     'tag': 'asuna_(sword_art_online)', 'page_key': 'pid', 'first_page': 0,
+     'tags': {'asuna': 'yuuki_asuna -kirigaya_kazuto', 'kirito': 'kirigaya_kazuto -yuuki_asuna', 'together': 'yuuki_asuna kirigaya_kazuto'}, 'page_key': 'pid', 'first_page': 0,
      'post_url': 'https://safebooru.org/index.php?page=post&s=view&id={}'},
     {'name': 'Konachan', 'endpoint': 'https://konachan.net/post.json',
      'base': 'https://konachan.net/', 'domain': 'konachan.net',
-     'tag': 'yuuki_asuna rating:s', 'page_key': 'page', 'first_page': 1,
+     'tags': {'asuna': 'yuuki_asuna -kirigaya_kazuto rating:s', 'kirito': 'kirigaya_kazuto -yuuki_asuna rating:s', 'together': 'yuuki_asuna kirigaya_kazuto rating:s'}, 'page_key': 'page', 'first_page': 1,
      'post_url': 'https://konachan.net/post/show/{}'},
 )
+MODES = {'mixed': 'Все варианты', 'asuna': 'Асуна', 'kirito': 'Кирито', 'together': 'Асуна и Кирито вместе'}
 HEADERS = {'User-Agent': 'AsunaChannelBot/1.0 (Telegram channel art rotator)'}
 
 
@@ -233,15 +243,19 @@ def download_image(url, source):
     raise ValueError('слишком много перенаправлений')
 
 
-def get_art(last_id):
+def get_art(last_id, mode='mixed'):
+    category = random.choice(('asuna', 'kirito', 'together')) if mode == 'mixed' else mode
+    if category not in ('asuna', 'kirito', 'together'):
+        raise RuntimeError('Неизвестная категория артов.')
+    event('info', 'Категория поиска: ' + MODES[category] + '.')
     reasons = []
     for source in SOURCES:
         name = source['name']
         page = random.randint(source['first_page'], source['first_page'] + 8)
-        params = {'tags': source['tag'], 'limit': 40, source['page_key']: page}
+        params = {'tags': source['tags'][category], 'limit': 40, source['page_key']: page}
         if name == 'Safebooru':
             params.update({'page': 'dapi', 's': 'post', 'q': 'index', 'json': 1})
-        event('info', f'{name}: ищем арты Асуны (страница {page}).')
+        event('info', f'{name}: ищем арты (страница {page}).')
         try:
             response = requests.get(source['endpoint'], params=params, headers=HEADERS, timeout=(5, 12))
             response.raise_for_status()
@@ -306,24 +320,25 @@ def get_art(last_id):
 
 
 def rotate_once():
-    token, channel = get('token'), get('channel')
-    if not token or not channel or get('running') != '1':
-        return
+    with lock:
+        token, channel = get('token'), get('channel')
+        mode, current_revision = get('mode', 'mixed'), revision
+        if not token or not channel or get('running') != '1':
+            return
     with db() as c:
         row = c.execute('SELECT * FROM channels WHERE id=?', (channel,)).fetchone()
     if not row:
         put('running', '0')
         put('error', 'Канал не найден. Добавьте бота как администратора заново.')
         return
-    art_id, image, mime, source_url = get_art(row['last_art'])
+    art_id, image, mime, source_url = get_art(row['last_art'], mode)
     # Prevent a configuration change while a Telegram request is in flight.
     with lock:
-        if token != get('token') or channel != get('channel') or get('running') != '1':
+        if current_revision != revision or token != get('token') or channel != get('channel') or get('running') != '1':
             return
-        caption = f'Асуна Юки ✨\nИсточник: {source_url}'
+        caption = 'Бесконечные арты с Асуной и Кирито каждые 10 секунд'
         filename = 'art.png' if mime == 'image/png' else 'art.jpg'
         if row['message_id']:
-            import json
             result = telegram(token, 'editMessageMedia', {
                 'chat_id': channel, 'message_id': row['message_id'],
                 'media': json.dumps({'type': 'photo', 'media': 'attach://photo', 'caption': caption}, ensure_ascii=False)
@@ -378,7 +393,7 @@ def status():
         channels = [dict(r) for r in c.execute('SELECT * FROM channels ORDER BY title')]
         events = [dict(r) for r in c.execute('SELECT id, created_at, level, message FROM events ORDER BY id DESC LIMIT 80')]
     return jsonify(connected=bool(get('token')), bot_name=get('bot_name'), channels=channels, events=events,
-        selected=get('channel'), running=get('running') == '1', error=get('error'), poll_error=get('poll_error'))
+        selected=get('channel'), mode=get('mode', 'mixed'), running=get('running') == '1', error=get('error'), poll_error=get('poll_error'))
 
 
 @app.post('/api/token')
@@ -393,6 +408,7 @@ def set_token():
         # Long polling and a webhook cannot be used simultaneously.
         telegram(token, 'deleteWebhook', {'drop_pending_updates': 'false'})
         with lock:
+            invalidate_rotation()
             if get('token') != token:
                 with db() as c:
                     c.execute('DELETE FROM channels')
@@ -414,6 +430,7 @@ def select():
             exists = c.execute('SELECT 1 FROM channels WHERE id=?', (channel,)).fetchone()
         if not exists:
             return jsonify(error='Канал не найден.'), 400
+        invalidate_rotation()
         put('running', '0')
         put('channel', channel)
         put('error', '')
@@ -427,9 +444,128 @@ def toggle():
     with lock:
         if running and (not get('token') or not get('channel')):
             return jsonify(error='Сначала подключите бота и выберите канал.'), 400
+        invalidate_rotation()
         put('running', '1' if running else '0')
         put('error', '')
         event('info', 'Бот запущен: начинаем поиск.' if running else 'Бот остановлен. Пост остаётся в канале.')
+    wake.set()
+    return jsonify(ok=True)
+
+
+@app.post('/api/post-id')
+def set_post_id():
+    payload = request.get_json(silent=True) or {}
+    message_id = payload.get('message_id')
+    if type(message_id) is not int or not 0 < message_id < 2**31:
+        return jsonify(error='Введите положительный числовой ID поста.'), 400
+    with lock:
+        channel = get('channel')
+        with db() as c:
+            exists = c.execute('SELECT 1 FROM channels WHERE id=?', (channel,)).fetchone()
+            if not exists:
+                return jsonify(error='Сначала выберите канал.'), 400
+            invalidate_rotation()
+            c.execute('UPDATE channels SET message_id=?, last_art=NULL, updated_at=NULL WHERE id=?', (message_id, channel))
+            c.execute("INSERT INTO settings (key,value) VALUES ('running','0') ON CONFLICT(key) DO UPDATE SET value='0'")
+            c.execute("INSERT INTO settings (key,value) VALUES ('error','') ON CONFLICT(key) DO UPDATE SET value=''")
+    event('info', f'Сохранён ID поста {message_id}. Бот на паузе; возможность редактирования проверится при запуске.')
+    wake.set()
+    return jsonify(ok=True)
+
+
+@app.post('/api/mode')
+def set_mode():
+    mode = (request.get_json(silent=True) or {}).get('mode')
+    if mode not in MODES:
+        return jsonify(error='Выберите категорию артов.'), 400
+    with lock:
+        invalidate_rotation()
+        put('mode', mode)
+        event('info', 'Выбрана категория: ' + MODES[mode] + '.')
+    wake.set()
+    return jsonify(ok=True)
+
+
+@app.post('/api/export')
+def export_backup():
+    with lock:
+        token = get('token')
+        if not token:
+            return jsonify(error='Сначала подключите бота.'), 400
+        proof = (request.get_json(silent=True) or {}).get('token')
+        if not isinstance(proof, str) or not hmac.compare_digest(proof.encode('utf-8'), token.encode('utf-8')):
+            return jsonify(error='Для экспорта введите текущий токен бота в поле на сайте.'), 403
+        with db() as c:
+            channels = [dict(row) for row in c.execute('SELECT id,title,username,message_id,last_art,updated_at FROM channels ORDER BY id')]
+        backup = {'format': 'asuna-studio-backup', 'version': 1, 'token': token,
+                  'selected': get('channel'), 'mode': get('mode', 'mixed'), 'channels': channels}
+    # This download contains the bot token. Do not put it in logs or browser caches.
+    response = Response(json.dumps(backup, ensure_ascii=False, indent=2), mimetype='text/plain')
+    response.headers['Content-Disposition'] = 'attachment; filename="asuna-studio-backup.txt"'
+    response.headers['Cache-Control'] = 'no-store, private'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@app.post('/api/import')
+def import_backup():
+    backup = request.get_json(silent=True)
+    if not isinstance(backup, dict) or backup.get('format') != 'asuna-studio-backup' or backup.get('version') != 1:
+        return jsonify(error='Не удалось прочитать файл. Выберите TXT, созданный этой панелью.'), 400
+    token = backup.get('token')
+    channels = backup.get('channels')
+    mode = backup.get('mode', 'mixed')
+    selected = str(backup.get('selected') or '')
+    if not isinstance(token, str) or not token or len(token) > 200 or not all(c.isalnum() or c in ':_-' for c in token):
+        return jsonify(error='В файле указан неверный токен.'), 400
+    if not isinstance(channels, list) or len(channels) > 100 or not isinstance(mode, str) or mode not in MODES:
+        return jsonify(error='В файле неверный список каналов или категория.'), 400
+    checked, seen = [], set()
+    for row in channels:
+        if not isinstance(row, dict):
+            return jsonify(error='В файле неверные данные канала.'), 400
+        channel_id, message_id = row.get('id'), row.get('message_id')
+        if type(channel_id) is not int or not (-10**16 < channel_id < 0) or channel_id in seen:
+            return jsonify(error='В файле неверный или повторяющийся ID канала.'), 400
+        if message_id is not None and (type(message_id) is not int or not 0 < message_id < 2**31):
+            return jsonify(error='В файле неверный ID поста.'), 400
+        last_art = row.get('last_art')
+        if last_art is not None and (not isinstance(last_art, (str, int)) or isinstance(last_art, bool) or len(str(last_art)) > 100):
+            return jsonify(error='В файле неверный ID арта.'), 400
+        updated_at = row.get('updated_at')
+        if updated_at is not None and (not isinstance(updated_at, str) or len(updated_at) > 50):
+            return jsonify(error='В файле неверная дата обновления.'), 400
+        seen.add(channel_id)
+        checked.append({'id': channel_id, 'message_id': message_id, 'last_art': last_art, 'updated_at': updated_at})
+    if selected and selected not in {str(i) for i in seen}:
+        return jsonify(error='Выбранный канал отсутствует в файле.'), 400
+    try:
+        me = telegram(token, 'getMe')
+        if not me.get('is_bot'):
+            raise RuntimeError('Токен не принадлежит боту.')
+        for row in checked:
+            chat = telegram(token, 'getChat', {'chat_id': row['id']})
+            member = telegram(token, 'getChatMember', {'chat_id': row['id'], 'user_id': me['id']})
+            if chat.get('type') != 'channel' or chat.get('id') != row['id'] or member.get('status') not in ('administrator', 'creator'):
+                raise RuntimeError('Бот не является администратором одного из каналов в файле.')
+            row['title'] = str(chat.get('title') or row['id'])[:255]
+            row['username'] = chat.get('username')
+        telegram(token, 'deleteWebhook', {'drop_pending_updates': 'false'})
+    except Exception as exc:
+        detail = str(exc).replace(token, '[токен скрыт]')
+        return jsonify(error='Импорт отменён: ' + detail), 400
+    # Save all fields together. Never run automatically after importing a file.
+    with lock:
+        offset = get('offset', '0') if get('token') == token else '0'
+        with db() as c:
+            c.execute('DELETE FROM channels')
+            c.executemany('INSERT INTO channels (id,title,username,message_id,last_art,updated_at) VALUES (:id,:title,:username,:message_id,:last_art,:updated_at)', checked)
+            c.execute('DELETE FROM settings')
+            values = {'token': token, 'bot_name': me.get('username') or me.get('first_name', 'Бот'),
+                      'channel': selected, 'mode': mode, 'running': '0', 'offset': offset}
+            c.executemany('INSERT INTO settings (key,value) VALUES (?,?)', values.items())
+        invalidate_rotation()
+    event('success', 'Данные импортированы. Бот на паузе; нажмите «Продолжить», чтобы обновить сохранённый пост.')
     wake.set()
     return jsonify(ok=True)
 

@@ -60,9 +60,9 @@ class BotTests(unittest.TestCase):
         response = Mock()
         response.json.return_value = [{'id': 5, 'rating': 'g', 'large_file_url': 'https://cdn.donmai.us/sample/art.jpg'}]
         with patch.object(app.requests, 'get', return_value=response) as get, patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')):
-            result = app.get_art(None)
+            result = app.get_art(None, 'asuna')
         self.assertEqual(result, ('Danbooru:5', b'jpeg', 'image/jpeg', 'https://danbooru.donmai.us/posts/5'))
-        self.assertEqual(get.call_args.kwargs['params']['tags'], 'yuuki_asuna rating:general')
+        self.assertEqual(get.call_args.kwargs['params']['tags'], 'yuuki_asuna -kirigaya_kazuto rating:general')
         self.assertIn('арт №5 скачан', str(self.client.get('/api/status').json['events']))
 
     def test_empty_danbooru_falls_back_to_safebooru(self):
@@ -117,6 +117,107 @@ class BotTests(unittest.TestCase):
         with app.db() as c:
             self.assertEqual(c.execute('SELECT COUNT(*) FROM events').fetchone()[0], 150)
         self.assertNotIn('123:secret', str(self.client.get('/api/status').json))
+
+    def test_exact_caption_for_send_and_edit(self):
+        import json
+        app.put('token', '123:abc')
+        app.put('channel', '-100123')
+        app.put('running', '1')
+        app.put('mode', 'kirito')
+        with app.db() as c:
+            c.execute('INSERT INTO channels (id,title) VALUES (?,?)', (-100123, 'Channel'))
+        caption = 'Бесконечные арты с Асуной и Кирито каждые 10 секунд'
+        with patch.object(app, 'get_art', return_value=('Danbooru:1', b'jpeg', 'image/jpeg', 'https://danbooru.donmai.us/posts/1')) as art, patch.object(app, 'telegram', side_effect=[{'message_id': 5}, True]) as tg:
+            app.rotate_once()
+            app.rotate_once()
+        self.assertEqual(tg.call_args_list[0].args[2]['caption'], caption)
+        self.assertEqual(json.loads(tg.call_args_list[1].args[2]['media'])['caption'], caption)
+        self.assertEqual(art.call_args_list[0].args[1], 'kirito')
+        self.assertNotIn('Источник', str(tg.call_args_list))
+
+    def test_modes_use_different_tag_queries(self):
+        from unittest.mock import Mock
+        for mode in ('asuna', 'kirito', 'together'):
+            response = Mock()
+            response.json.return_value = [{'id': 5, 'rating': 'g', 'large_file_url': 'https://cdn.donmai.us/a.jpg'}]
+            with self.subTest(mode=mode), patch.object(app.requests, 'get', return_value=response) as request, patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')):
+                app.get_art(None, mode)
+                self.assertEqual(request.call_args.kwargs['params']['tags'], app.SOURCES[0]['tags'][mode])
+        self.assertEqual(self.client.post('/api/mode', json={'mode': 'unknown'}).status_code, 400)
+
+    def test_backup_requires_token_and_roundtrip_resumes_same_post(self):
+        import json
+        token = '123:abc'
+        app.put('token', token)
+        app.put('channel', '-100123')
+        app.put('mode', 'together')
+        app.put('running', '1')
+        with app.db() as c:
+            c.execute('INSERT INTO channels (id,title,message_id,last_art) VALUES (?,?,?,?)', (-100123, 'Channel', 77, 'Danbooru:3'))
+        self.assertEqual(self.client.post('/api/export', json={}).status_code, 403)
+        self.assertEqual(self.client.post('/api/export', json={'token': 'wrong'}).status_code, 403)
+        response = self.client.post('/api/export', json={'token': token})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('no-store', response.headers['Cache-Control'])
+        backup = json.loads(response.data)
+        self.assertEqual(backup['token'], token)
+        def telegram(t, method, data=None, **kwargs):
+            if method == 'getMe': return {'id': 123, 'is_bot': True, 'username': 'bot'}
+            if method == 'getChat': return {'id': -100123, 'type': 'channel', 'title': 'Channel'}
+            if method == 'getChatMember': return {'status': 'administrator'}
+            if method == 'deleteWebhook': return True
+            raise AssertionError(method)
+        with patch.object(app, 'telegram', side_effect=telegram):
+            self.assertEqual(self.client.post('/api/import', json=backup).status_code, 200)
+        status = self.client.get('/api/status').json
+        self.assertFalse(status['running'])
+        self.assertEqual(status['selected'], '-100123')
+        self.assertEqual(status['channels'][0]['message_id'], 77)
+        self.assertEqual(status['mode'], 'together')
+        self.client.post('/api/toggle', json={'running': True})
+        with patch.object(app, 'get_art', return_value=('Danbooru:4', b'jpeg', 'image/jpeg', 'https://danbooru.donmai.us/posts/4')), patch.object(app, 'telegram', return_value=True) as tg:
+            app.rotate_once()
+        self.assertEqual(tg.call_args.args[1], 'editMessageMedia')
+        self.assertEqual(tg.call_args.args[2]['message_id'], 77)
+
+    def test_bad_import_keeps_existing_data(self):
+        app.put('token', '123:abc')
+        app.put('channel', '-100123')
+        with app.db() as c:
+            c.execute('INSERT INTO channels (id,title,message_id) VALUES (?,?,?)', (-100123, 'Channel', 77))
+        bad = {'format': 'asuna-studio-backup', 'version': 1, 'token': '999:abc', 'selected': '-100234', 'channels': [{'id': -100234, 'message_id': 88}], 'mode': 'mixed'}
+        with patch.object(app, 'telegram', side_effect=RuntimeError('invalid token')):
+            self.assertEqual(self.client.post('/api/import', json=bad).status_code, 400)
+        status = self.client.get('/api/status').json
+        self.assertEqual(status['selected'], '-100123')
+        self.assertEqual(status['channels'][0]['message_id'], 77)
+        self.assertEqual(app.get('token'), '123:abc')
+
+    def test_manually_restore_post_id_pauses_and_keeps_channel(self):
+        app.put('token', '123:abc')
+        app.put('channel', '-100123')
+        app.put('running', '1')
+        with app.db() as c:
+            c.execute('INSERT INTO channels (id,title,message_id) VALUES (?,?,?)', (-100123, 'Channel', 77))
+        self.assertEqual(self.client.post('/api/post-id', json={'message_id': -5}).status_code, 400)
+        self.assertEqual(self.client.post('/api/post-id', json={'message_id': 85}).status_code, 200)
+        status = self.client.get('/api/status').json
+        self.assertFalse(status['running'])
+        self.assertEqual(status['channels'][0]['message_id'], 85)
+
+    def test_pause_invalidates_inflight_search(self):
+        app.put('token', '123:abc')
+        app.put('channel', '-100123')
+        app.put('running', '1')
+        with app.db() as c:
+            c.execute('INSERT INTO channels (id,title,message_id) VALUES (?,?,?)', (-100123, 'Channel', 77))
+        def search(*args):
+            self.client.post('/api/toggle', json={'running': False})
+            self.client.post('/api/toggle', json={'running': True})
+            return ('Danbooru:4', b'jpeg', 'image/jpeg', 'https://danbooru.donmai.us/posts/4')
+        with patch.object(app, 'get_art', side_effect=search), patch.object(app, 'telegram') as tg:
+            app.rotate_once()
+        tg.assert_not_called()
 
     def test_panel_requires_no_password_and_rejects_foreign_origin(self):
         self.assertEqual(self.client.get('/api/status').status_code, 200)
