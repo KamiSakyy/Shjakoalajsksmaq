@@ -3,6 +3,7 @@ import hmac
 import json
 import os
 import random
+import re
 import sqlite3
 import threading
 import time
@@ -336,7 +337,7 @@ def rotate_once():
     with lock:
         if current_revision != revision or token != get('token') or channel != get('channel') or get('running') != '1':
             return
-        caption = 'Бесконечные арты с Асуной и Кирито каждые 10 секунд'
+        caption = 'Бесконечные арты САО каждые 10 секунд'
         filename = 'art.png' if mime == 'image/png' else 'art.jpg'
         if row['message_id']:
             result = telegram(token, 'editMessageMedia', {
@@ -420,6 +421,91 @@ def set_token():
         return jsonify(ok=True)
     except Exception as exc:
         return jsonify(error=str(exc)), 400
+
+def parse_channel_reference(value):
+    """Return a Telegram chat reference and an optional post ID, without fetching URLs."""
+    if not isinstance(value, str) or not value.strip() or len(value) > 300:
+        raise ValueError('Введите ID канала, @имя или ссылку на пост.')
+    value = value.strip()
+    if re.fullmatch(r'-[0-9]{1,15}', value):
+        channel_id = int(value)
+        if channel_id < 0:
+            return channel_id, None
+    if re.fullmatch(r'@?[a-zA-Z0-9_]{5,32}', value):
+        return '@' + value.lstrip('@'), None
+    if value.lower().startswith(('t.me/', 'www.t.me/')):
+        value = 'https://' + value
+    parsed = urlparse(value)
+    try:
+        valid_host = (parsed.scheme in ('http', 'https') and parsed.hostname in ('t.me', 'www.t.me')
+                      and parsed.port in (None, 80, 443) and not parsed.username and not parsed.password)
+    except ValueError:
+        valid_host = False
+    if not valid_host:
+        raise ValueError('Введите ID канала, @имя или ссылку вида https://t.me/имя/123.')
+    parts = parsed.path.strip('/').split('/')
+    if len(parts) in (2, 3) and parts[0] == 'c' and re.fullmatch(r'[1-9][0-9]{0,12}', parts[1]):
+        chat_id = int('-100' + parts[1])
+        if chat_id <= -10**16:
+            raise ValueError('Слишком длинный ID канала в ссылке.')
+        post = parts[2] if len(parts) == 3 else None
+    elif len(parts) in (1, 2) and re.fullmatch(r'[a-zA-Z0-9_]{5,32}', parts[0]):
+        chat_id = '@' + parts[0]
+        post = parts[1] if len(parts) == 2 else None
+    else:
+        raise ValueError('Не удалось понять ссылку. Нужна ссылка на канал или его пост.')
+    if post is not None:
+        if not re.fullmatch(r'[0-9]{1,10}', post) or not 0 < int(post) < 2**31:
+            raise ValueError('В ссылке указан неверный ID поста.')
+        return chat_id, int(post)
+    return chat_id, None
+
+
+@app.post('/api/channel-reference')
+def channel_reference():
+    payload = request.get_json(silent=True)
+    try:
+        reference, post_id = parse_channel_reference(payload.get('reference') if isinstance(payload, dict) else None)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    with lock:
+        token, current_revision = get('token'), revision
+    if not token:
+        return jsonify(error='Сначала подключите бота.'), 400
+    try:
+        me = telegram(token, 'getMe')
+        chat = telegram(token, 'getChat', {'chat_id': reference})
+        channel_id = chat.get('id')
+        if chat.get('type') != 'channel' or type(channel_id) is not int or not (-10**16 < channel_id < 0):
+            raise RuntimeError('Это не канал Telegram.')
+        if isinstance(reference, int) and channel_id != reference:
+            raise RuntimeError('Telegram вернул другой ID канала.')
+        member = telegram(token, 'getChatMember', {'chat_id': channel_id, 'user_id': me['id']})
+        if member.get('status') not in ('administrator', 'creator'):
+            raise RuntimeError('Добавьте бота администратором этого канала с правами публикации.')
+    except Exception as exc:
+        detail = str(exc).replace(token, '[токен скрыт]')
+        return jsonify(error='Не удалось подключить канал: ' + detail), 400
+    with lock:
+        if token != get('token') or revision != current_revision:
+            return jsonify(error='Настройки изменились во время проверки. Попробуйте ещё раз.'), 409
+        title = str(chat.get('title') or channel_id)[:255]
+        username = chat.get('username')
+        with db() as c:
+            c.execute('''INSERT INTO channels (id,title,username) VALUES (?,?,?)
+                ON CONFLICT(id) DO UPDATE SET title=excluded.title, username=excluded.username''',
+                (channel_id, title, username))
+            if post_id is not None:
+                c.execute('UPDATE channels SET message_id=?, last_art=NULL, updated_at=NULL WHERE id=?', (post_id, channel_id))
+            values = [('channel', str(channel_id)), ('running', '0'), ('error', '')]
+            c.executemany('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', values)
+        invalidate_rotation()
+    if post_id is not None:
+        event('success', f'Канал «{title}» подключён, выбран пост {post_id}. Бот на паузе; возможность редактирования проверится при запуске.')
+    else:
+        event('success', f'Канал «{title}» подключён. Бот на паузе.')
+    wake.set()
+    return jsonify(ok=True, channel_id=channel_id, message_id=post_id)
 
 
 @app.post('/api/select')

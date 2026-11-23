@@ -126,7 +126,7 @@ class BotTests(unittest.TestCase):
         app.put('mode', 'kirito')
         with app.db() as c:
             c.execute('INSERT INTO channels (id,title) VALUES (?,?)', (-100123, 'Channel'))
-        caption = 'Бесконечные арты с Асуной и Кирито каждые 10 секунд'
+        caption = 'Бесконечные арты САО каждые 10 секунд'
         with patch.object(app, 'get_art', return_value=('Danbooru:1', b'jpeg', 'image/jpeg', 'https://danbooru.donmai.us/posts/1')) as art, patch.object(app, 'telegram', side_effect=[{'message_id': 5}, True]) as tg:
             app.rotate_once()
             app.rotate_once()
@@ -192,6 +192,91 @@ class BotTests(unittest.TestCase):
         self.assertEqual(status['selected'], '-100123')
         self.assertEqual(status['channels'][0]['message_id'], 77)
         self.assertEqual(app.get('token'), '123:abc')
+
+    def test_parse_channel_references(self):
+        cases = {
+            'https://t.me/AsunaYukki/879': ('@AsunaYukki', 879),
+            't.me/AsunaYukki/879?single': ('@AsunaYukki', 879),
+            '@AsunaYukki': ('@AsunaYukki', None),
+            'https://t.me/AsunaYukki': ('@AsunaYukki', None),
+            '-1001234567890': (-1001234567890, None),
+            'https://t.me/c/1234567890/879': (-1001234567890, 879),
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(app.parse_channel_reference(value), expected)
+        for value in ('https://evil.example/AsunaYukki/879', 'https://t.me.evil.example/AsunaYukki/879', 'https://t.me/+invite', 'https://t.me/AsunaYukki/0', 'https://t.me/AsunaYukki/not_a_post', None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                app.parse_channel_reference(value)
+
+    def test_add_public_post_link_uses_telegram_resolved_id(self):
+        app.put('token', '123:abc')
+        app.put('running', '1')
+        def telegram(token, method, data=None, **kwargs):
+            if method == 'getMe': return {'id': 123}
+            if method == 'getChat':
+                self.assertEqual(data['chat_id'], '@AsunaYukki')
+                return {'id': -1001234567890, 'type': 'channel', 'title': 'SAO', 'username': 'AsunaYukki'}
+            if method == 'getChatMember':
+                self.assertEqual(data['chat_id'], -1001234567890)
+                return {'status': 'administrator'}
+            raise AssertionError(method)
+        with patch.object(app, 'telegram', side_effect=telegram):
+            response = self.client.post('/api/channel-reference', json={'reference': 'https://t.me/AsunaYukki/879'})
+        self.assertEqual(response.status_code, 200)
+        status = self.client.get('/api/status').json
+        self.assertEqual(status['selected'], '-1001234567890')
+        self.assertEqual(status['channels'][0]['message_id'], 879)
+        self.assertFalse(status['running'])
+        self.assertNotIn('123:abc', str(status))
+        self.client.post('/api/toggle', json={'running': True})
+        with patch.object(app, 'get_art', return_value=('Danbooru:4', b'jpeg', 'image/jpeg', 'https://danbooru.donmai.us/posts/4')), patch.object(app, 'telegram', return_value=True) as tg:
+            app.rotate_once()
+        self.assertEqual(tg.call_args.args[1], 'editMessageMedia')
+        self.assertEqual(tg.call_args.args[2]['message_id'], 879)
+
+    def test_channel_id_keeps_existing_post_and_failure_does_not_change_state(self):
+        app.put('token', '123:abc')
+        app.put('channel', '-1001234567890')
+        app.put('running', '1')
+        with app.db() as c:
+            c.execute('INSERT INTO channels (id,title,message_id) VALUES (?,?,?)', (-1001234567890, 'Old', 77))
+        def telegram(token, method, data=None, **kwargs):
+            if method == 'getMe': return {'id': 123}
+            if method == 'getChat': return {'id': -1001234567890, 'type': 'channel', 'title': 'New'}
+            if method == 'getChatMember': return {'status': 'administrator'}
+        with patch.object(app, 'telegram', side_effect=telegram):
+            response = self.client.post('/api/channel-reference', json={'reference': '-1001234567890'})
+        self.assertEqual(response.status_code, 200)
+        status = self.client.get('/api/status').json
+        self.assertEqual(status['channels'][0]['message_id'], 77)
+        self.assertFalse(status['running'])
+        def no_rights(token, method, data=None, **kwargs):
+            if method == 'getMe': return {'id': 123}
+            if method == 'getChat': return {'id': -1001234567890, 'type': 'channel', 'title': 'New'}
+            if method == 'getChatMember': return {'status': 'member'}
+        with patch.object(app, 'telegram', side_effect=no_rights):
+            response = self.client.post('/api/channel-reference', json={'reference': 'https://t.me/AsunaYukki/879'})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.client.get('/api/status').json['channels'][0]['message_id'], 77)
+
+    def test_reject_group_and_stale_reference(self):
+        app.put('token', '123:abc')
+        def group(token, method, data=None, **kwargs):
+            if method == 'getMe': return {'id': 123}
+            if method == 'getChat': return {'id': -100123, 'type': 'supergroup', 'title': 'Group'}
+        with patch.object(app, 'telegram', side_effect=group):
+            self.assertEqual(self.client.post('/api/channel-reference', json={'reference': '@AsunaYukki'}).status_code, 400)
+        self.assertEqual(self.client.get('/api/status').json['channels'], [])
+        def stale(token, method, data=None, **kwargs):
+            if method == 'getMe': return {'id': 123}
+            if method == 'getChat': return {'id': -100123, 'type': 'channel', 'title': 'Channel'}
+            if method == 'getChatMember':
+                self.client.post('/api/mode', json={'mode': 'kirito'})
+                return {'status': 'administrator'}
+        with patch.object(app, 'telegram', side_effect=stale):
+            self.assertEqual(self.client.post('/api/channel-reference', json={'reference': '@AsunaYukki'}).status_code, 409)
+        self.assertEqual(self.client.get('/api/status').json['channels'], [])
 
     def test_manually_restore_post_id_pauses_and_keeps_channel(self):
         app.put('token', '123:abc')

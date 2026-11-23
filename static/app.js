@@ -51,6 +51,16 @@ function rememberToken(token) { try { localStorage.setItem('asuna-backup-token',
 function storedToken() { try { return localStorage.getItem('asuna-backup-token') || ''; } catch (_) { return ''; } }
 $('connect').onclick = async () => { const b = $('connect'), token = $('token').value.trim(); b.disabled = true; try { await api('token', {token}); rememberToken(token); $('token').value = ''; await refresh(); } catch(e) { notice(e.message); } finally { b.disabled = false; } };
 $('channel').onchange = async e => { if (!e.target.value) return; try { await api('select', {channel:e.target.value}); await refresh(); } catch(err) { notice(err.message); } };
+$('connectChannel').onclick = async () => {
+  const input = $('channelReference'), reference = input.value.trim(), button = $('connectChannel');
+  if (!reference) { notice('Введите ID канала, @имя или ссылку на пост.'); input.focus(); return; }
+  if (!confirm('Канал будет выбран и бот перейдёт на паузу. Если это ссылка на пост, бот попытается продолжить именно его. Продолжить?')) return;
+  button.disabled = true;
+  try {
+    const result = await api('channel-reference', {reference}); input.value = ''; await refresh();
+    notice(result.message_id ? 'Канал и ID поста сохранены. Нажмите «Запустить / продолжить».' : 'Канал подключён. Нажмите «Запустить / продолжить».', false);
+  } catch(err) { notice(err.message); } finally { button.disabled = false; }
+};
 $('toggle').onclick = async () => { try { await api('toggle', {running:!state.running}); await refresh(); } catch(e) { notice(e.message); } };
 $('savePostId').onclick = async () => {
   const value = $('postId').value.trim(), id = Number(value);
