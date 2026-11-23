@@ -20,9 +20,26 @@ async function refresh() {
     $('topStatus').classList.toggle('active', state.running);
     const selected = state.channels.find(c => String(c.id) === current);
     $('runHint').textContent = selected?.updated_at ? '✧  Последнее обновление: ' + selected.updated_at + ' UTC' : '✧  Можно остановить в любой момент.';
+    renderLogs(state.events || []);
     if (state.error || state.poll_error) notice(state.error || 'Ошибка получения событий: ' + state.poll_error);
     else notice('');
   } catch(e) { notice(e.message); }
+}
+function renderLogs(events) {
+  const container = $('logs');
+  container.replaceChildren();
+  if (!events.length) {
+    const empty = document.createElement('div'); empty.className = 'log-empty';
+    empty.textContent = 'Здесь появятся действия бота.'; container.appendChild(empty); return;
+  }
+  const labels = {info: 'ИНФО', success: 'ГОТОВО', warning: 'ПРОБЛЕМА', error: 'ОШИБКА'};
+  events.forEach(entry => {
+    const row = document.createElement('div'); row.className = 'log-row';
+    const time = document.createElement('time'); time.textContent = entry.created_at;
+    const badge = document.createElement('span'); badge.className = 'log-level ' + (labels[entry.level] ? entry.level : 'info'); badge.textContent = labels[entry.level] || 'ИНФО';
+    const message = document.createElement('span'); message.className = 'log-message'; message.textContent = entry.message;
+    row.append(time, badge, message); container.appendChild(row);
+  });
 }
 $('reveal').onclick = () => { $('token').type = $('token').type === 'password' ? 'text' : 'password'; };
 $('connect').onclick = async () => { const b = $('connect'); b.disabled = true; try { await api('token', {token:$('token').value}); $('token').value = ''; await refresh(); } catch(e) { notice(e.message); } finally { b.disabled = false; } };

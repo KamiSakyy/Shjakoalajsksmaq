@@ -4,7 +4,7 @@ import random
 import sqlite3
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 import requests
 from flask import Flask, jsonify, request, send_from_directory
@@ -29,6 +29,7 @@ def init_db():
     with db() as c:
         c.executescript('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS channels (id INTEGER PRIMARY KEY, title TEXT NOT NULL, username TEXT, message_id INTEGER, last_art INTEGER, updated_at TEXT);
+        CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL DEFAULT (datetime('now')), level TEXT NOT NULL, message TEXT NOT NULL);
         ''')
     try:
         os.chmod(DB_PATH, 0o600)
@@ -47,14 +48,55 @@ def put(key, value):
         c.execute('INSERT INTO settings VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(value)))
 
 
+def event(level, message):
+    # Logs are visible on the site. Never include a bot token, URLs with credentials,
+    # image response bodies or arbitrary request exceptions in them.
+    message = str(message)
+    token = get('token')
+    if token:
+        message = message.replace(token, '[токен скрыт]')
+    message = message[:500]
+    with db() as c:
+        c.execute('INSERT INTO events (level, message) VALUES (?, ?)', (level, message))
+        c.execute('DELETE FROM events WHERE id NOT IN (SELECT id FROM events ORDER BY id DESC LIMIT 150)')
+    logging.info('%s: %s', level.upper(), message)
+
+
+def network_reason(exc):
+    if isinstance(exc, requests.Timeout):
+        return 'превышено время ожидания'
+    if isinstance(exc, requests.ConnectionError):
+        return 'нет соединения с сервером'
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        code = exc.response.status_code
+        return f'HTTP {code}' + (' (слишком много запросов)' if code == 429 else ' (доступ запрещён)' if code in (401, 403) else '')
+    if isinstance(exc, ValueError):
+        return 'ответ API не похож на JSON'
+    return 'ошибка сети или ответа сервера'
+
+
 def telegram(token, method, data=None, files=None, timeout=20):
     try:
         response = requests.post('https://api.telegram.org/bot' + token + '/' + method, data=data or {}, files=files, timeout=timeout)
         payload = response.json()
     except (requests.RequestException, ValueError) as exc:
-        raise RuntimeError('Не удалось связаться с Telegram') from exc
+        raise RuntimeError('Telegram: ' + network_reason(exc)) from exc
     if not payload.get('ok'):
-        raise RuntimeError(payload.get('description', 'Ошибка Telegram'))
+        description = str(payload.get('description', 'Ошибка Telegram')).replace(token, '[токен скрыт]')
+        lower = description.lower()
+        if 'chat not found' in lower:
+            explanation = 'канал не найден, проверьте, что бот добавлен в него'
+        elif 'not enough rights' in lower or 'forbidden' in lower:
+            explanation = 'не хватает прав: дайте боту права публиковать и редактировать сообщения'
+        elif 'message to edit not found' in lower or "message can't be edited" in lower:
+            explanation = 'исходный пост удалён или недоступен для редактирования; новый пост автоматически не создаётся'
+        elif 'too many requests' in lower:
+            explanation = 'слишком много запросов, повторим позже'
+        elif 'unauthorized' in lower:
+            explanation = 'неверный токен бота'
+        else:
+            explanation = 'ошибка запроса'
+        raise RuntimeError(f'Telegram: {explanation} ({description})')
     return payload['result']
 
 
@@ -67,11 +109,14 @@ def remember_channel(token, chat):
         if member.get('status') not in ('administrator', 'creator'):
             return
         with db() as c:
+            existed = c.execute('SELECT 1 FROM channels WHERE id=?', (chat['id'],)).fetchone()
             c.execute('''INSERT INTO channels (id,title,username) VALUES (?,?,?)
                 ON CONFLICT(id) DO UPDATE SET title=excluded.title, username=excluded.username''',
                 (chat['id'], chat.get('title', str(chat['id'])), chat.get('username')))
+        if not existed:
+            event('success', 'Канал обнаружен: ' + chat.get('title', str(chat['id'])))
     except Exception as exc:
-        logging.warning('Cannot verify channel: %s', exc)
+        event('error', 'Не удалось проверить права бота в канале: ' + str(exc).replace(token, '[токен скрыт]'))
 
 
 def process_update(token, update):
@@ -115,47 +160,149 @@ def poll_loop():
         except Exception as exc:
             logging.warning('Polling error: %s', exc)
             if get('token') == token:
+                if get('poll_error') != str(exc):
+                    event('error', 'Не удалось получить события Telegram: ' + str(exc).replace(token, '[токен скрыт]'))
                 put('poll_error', str(exc))
             time.sleep(5)
         else:
             if get('token') == token:
+                if get('poll_error'):
+                    event('success', 'Связь с Telegram восстановлена.')
                 put('poll_error', '')
 
 
-def get_art(last_id):
-    # Danbooru's public API is finite and rate-limited; choose a fresh random page each time.
-    headers = {'User-Agent': 'AsunaChannelBot/1.0 (Telegram channel art rotator)'}
-    page = random.randint(1, 100)
-    r = requests.get('https://danbooru.donmai.us/posts.json', params={
-        'tags': 'asuna_(sword_art_online) rating:general', 'limit': 40, 'page': page}, headers=headers, timeout=20)
-    r.raise_for_status()
-    posts = r.json()
-    random.shuffle(posts)
-    for post in posts:
-        if str(post.get('id')) == str(last_id):
-            continue
-        # Prefer a Telegram-compatible sample over huge original files.
-        url = post.get('large_file_url') or post.get('file_url') or post.get('preview_file_url')
-        if not url or urlparse(url).scheme != 'https' or not (urlparse(url).hostname or '').endswith('.donmai.us'):
-            continue
+# Sources are independent public searches. Each uses its own tag for Asuna.
+SOURCES = (
+    {'name': 'Danbooru', 'endpoint': 'https://danbooru.donmai.us/posts.json',
+     'base': 'https://danbooru.donmai.us/', 'domain': 'donmai.us',
+     'tag': 'yuuki_asuna rating:general', 'page_key': 'page', 'first_page': 1,
+     'post_url': 'https://danbooru.donmai.us/posts/{}'},
+    {'name': 'Safebooru', 'endpoint': 'https://safebooru.org/index.php',
+     'base': 'https://safebooru.org/', 'domain': 'safebooru.org',
+     'tag': 'asuna_(sword_art_online)', 'page_key': 'pid', 'first_page': 0,
+     'post_url': 'https://safebooru.org/index.php?page=post&s=view&id={}'},
+    {'name': 'Konachan', 'endpoint': 'https://konachan.net/post.json',
+     'base': 'https://konachan.net/', 'domain': 'konachan.net',
+     'tag': 'yuuki_asuna rating:s', 'page_key': 'page', 'first_page': 1,
+     'post_url': 'https://konachan.net/post/show/{}'},
+)
+HEADERS = {'User-Agent': 'AsunaChannelBot/1.0 (Telegram channel art rotator)'}
+
+
+def allowed_image_url(url, source):
+    # A remote API must never be able to make the server fetch an arbitrary host.
+    url = urljoin(source['base'], url or '')
+    parsed = urlparse(url)
+    host = (parsed.hostname or '').lower()
+    domain = source['domain']
+    if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.port not in (None, 443):
+        return None
+    if host != domain and not host.endswith('.' + domain):
+        return None
+    return url
+
+
+def download_image(url, source):
+    url = allowed_image_url(url, source)
+    if not url:
+        raise ValueError('небезопасная ссылка на изображение')
+    headers = dict(HEADERS, Referer=source['base'])
+    for _ in range(3):
+        response = requests.get(url, headers=headers, timeout=(5, 12), stream=True, allow_redirects=False)
         try:
-            image = requests.get(url, headers=headers, timeout=25, stream=True, allow_redirects=False)
-            image.raise_for_status()
-            content_type = image.headers.get('Content-Type', '').split(';')[0].lower()
-            if content_type not in ('image/jpeg', 'image/png'):
+            if response.status_code in (301, 302, 303, 307, 308):
+                url = allowed_image_url(urljoin(url, response.headers.get('Location', '')), source)
+                if not url:
+                    raise ValueError('небезопасное перенаправление')
                 continue
+            response.raise_for_status()
+            mime = response.headers.get('Content-Type', '').split(';')[0].lower()
+            if mime not in ('image/jpeg', 'image/png'):
+                raise ValueError('формат не JPEG и не PNG')
             chunks, size = [], 0
-            for chunk in image.iter_content(65536):
+            for chunk in response.iter_content(65536):
                 size += len(chunk)
                 if size > 9 * 1024 * 1024:
-                    break
+                    raise ValueError('файл больше 9 МБ')
                 chunks.append(chunk)
-            else:
-                if size:
-                    return post['id'], b''.join(chunks), content_type
-        except requests.RequestException:
+            if not size:
+                raise ValueError('пустой файл')
+            return b''.join(chunks), mime
+        finally:
+            response.close()
+    raise ValueError('слишком много перенаправлений')
+
+
+def get_art(last_id):
+    reasons = []
+    for source in SOURCES:
+        name = source['name']
+        page = random.randint(source['first_page'], source['first_page'] + 8)
+        params = {'tags': source['tag'], 'limit': 40, source['page_key']: page}
+        if name == 'Safebooru':
+            params.update({'page': 'dapi', 's': 'post', 'q': 'index', 'json': 1})
+        event('info', f'{name}: ищем арты Асуны (страница {page}).')
+        try:
+            response = requests.get(source['endpoint'], params=params, headers=HEADERS, timeout=(5, 12))
+            response.raise_for_status()
+            posts = response.json()
+            if isinstance(posts, dict):
+                posts = posts.get('post', [])
+            if not isinstance(posts, list):
+                raise ValueError('неверный формат')
+            # A page beyond the end is common for small galleries. Retry the first page.
+            if not posts and page != source['first_page']:
+                params[source['page_key']] = source['first_page']
+                response = requests.get(source['endpoint'], params=params, headers=HEADERS, timeout=(5, 12))
+                response.raise_for_status()
+                posts = response.json()
+                if isinstance(posts, dict):
+                    posts = posts.get('post', [])
+            if not isinstance(posts, list):
+                raise ValueError('неверный формат')
+        except (requests.RequestException, ValueError) as exc:
+            reason = network_reason(exc)
+            reasons.append(f'{name}: {reason}')
+            event('warning', f'{name}: {reason}. Пробуем следующий источник.')
             continue
-    raise RuntimeError('Не удалось загрузить подходящий арт. Попробуем снова.')
+        if not posts:
+            reasons.append(f'{name}: ничего не найдено')
+            event('warning', f'{name}: арты не найдены. Пробуем следующий источник.')
+            continue
+        random.shuffle(posts)
+        failures = []
+        count = 0
+        for post in posts:
+            if not isinstance(post, dict) or not post.get('id'):
+                continue
+            art_key = f"{name}:{post['id']}"
+            if str(last_id) in (art_key, str(post['id'])):
+                continue
+            if post.get('rating') and post['rating'] not in ('g', 'general', 's', 'safe'):
+                continue
+            candidates = [post.get('large_file_url'), post.get('sample_url'), post.get('jpeg_url'), post.get('file_url')]
+            if name == 'Safebooru' and post.get('directory') is not None and post.get('image'):
+                candidates.append(f"/images/{post['directory']}/{post['image']}")
+            for url in dict.fromkeys(u for u in candidates if isinstance(u, str) and u):
+                if count >= 4:
+                    break
+                count += 1
+                try:
+                    image, mime = download_image(url, source)
+                    event('success', f'{name}: арт №{post["id"]} скачан, отправляем в Telegram.')
+                    return art_key, image, mime, source['post_url'].format(post['id'])
+                except requests.RequestException as exc:
+                    failures.append(network_reason(exc))
+                    if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 429:
+                        count = 4  # Do not keep hammering a rate-limited source.
+                except ValueError as exc:
+                    failures.append(str(exc))
+            if count >= 4:
+                break
+        reason = ', '.join(dict.fromkeys(failures)) if failures else 'нет подходящих файлов'
+        reasons.append(f'{name}: {reason}')
+        event('warning', f'{name}: найдено {len(posts)} записей, скачать не удалось: {reason}. Пробуем следующий источник.')
+    raise RuntimeError('Все источники недоступны. ' + '; '.join(reasons))
 
 
 def rotate_once():
@@ -168,12 +315,12 @@ def rotate_once():
         put('running', '0')
         put('error', 'Канал не найден. Добавьте бота как администратора заново.')
         return
-    art_id, image, mime = get_art(row['last_art'])
+    art_id, image, mime, source_url = get_art(row['last_art'])
     # Prevent a configuration change while a Telegram request is in flight.
     with lock:
         if token != get('token') or channel != get('channel') or get('running') != '1':
             return
-        caption = f'Асуна Юки ✨\nИсточник: https://danbooru.donmai.us/posts/{art_id}'
+        caption = f'Асуна Юки ✨\nИсточник: {source_url}'
         filename = 'art.png' if mime == 'image/png' else 'art.jpg'
         if row['message_id']:
             import json
@@ -188,19 +335,25 @@ def rotate_once():
         with db() as c:
             c.execute("UPDATE channels SET message_id=?, last_art=?, updated_at=datetime('now') WHERE id=?", (message_id, art_id, channel))
         put('error', '')
+        event('success', 'Пост обновлён.' if row['message_id'] else 'Первый пост опубликован.')
 
 
 def rotate_loop():
     while True:
         if get('running') == '1':
             started = time.monotonic()
+            delay = 10
             try:
                 rotate_once()
             except Exception as exc:
                 logging.warning('Rotation error: %s', exc)
-                put('error', str(exc)[:300])
-            # Ten seconds between attempts, not a promise that third parties respond on time.
-            wake.wait(max(1, 10 - (time.monotonic() - started)))
+                token = get('token')
+                detail = str(exc).replace(token, '[токен скрыт]') if token else str(exc)
+                put('error', detail[:300])
+                event('error', 'Обновление не удалось: ' + detail[:350] + '. Повторим попытку.')
+                delay = 30  # Avoid hammering rate-limited or unavailable services.
+            # Target interval between attempts; network time can make it longer.
+            wake.wait(max(1, delay - (time.monotonic() - started)))
         else:
             wake.wait(2)
         wake.clear()
@@ -223,7 +376,8 @@ def index():
 def status():
     with db() as c:
         channels = [dict(r) for r in c.execute('SELECT * FROM channels ORDER BY title')]
-    return jsonify(connected=bool(get('token')), bot_name=get('bot_name'), channels=channels,
+        events = [dict(r) for r in c.execute('SELECT id, created_at, level, message FROM events ORDER BY id DESC LIMIT 80')]
+    return jsonify(connected=bool(get('token')), bot_name=get('bot_name'), channels=channels, events=events,
         selected=get('channel'), running=get('running') == '1', error=get('error'), poll_error=get('poll_error'))
 
 
@@ -245,6 +399,7 @@ def set_token():
                     c.execute('DELETE FROM settings')
             put('token', token)
             put('bot_name', me.get('username', me.get('first_name', 'Бот')))
+        event('success', 'Бот подключён. Ожидаем добавления в канал.')
         wake.set()
         return jsonify(ok=True)
     except Exception as exc:
@@ -262,6 +417,7 @@ def select():
         put('running', '0')
         put('channel', channel)
         put('error', '')
+        event('info', 'Канал выбран. Нажмите «Запустить бота».')
     return jsonify(ok=True)
 
 
@@ -273,6 +429,7 @@ def toggle():
             return jsonify(error='Сначала подключите бота и выберите канал.'), 400
         put('running', '1' if running else '0')
         put('error', '')
+        event('info', 'Бот запущен: начинаем поиск.' if running else 'Бот остановлен. Пост остаётся в канале.')
     wake.set()
     return jsonify(ok=True)
 
