@@ -55,10 +55,46 @@ class BotTests(unittest.TestCase):
         self.assertEqual(tg.call_args.args[1], 'editMessageMedia')
         self.assertEqual(self.client.get('/api/status').json['channels'][0]['message_id'], 5)
 
+    def test_content_filter_checks_characters_and_unwanted_types(self):
+        def post(tags, characters=None, rating='g'):
+            value = {'id': 1, 'rating': rating, 'tag_string': tags}
+            if characters is not None:
+                value['tag_string_character'] = characters
+            return value
+        asuna = post('asuna_(sao) sword_art_online solo 1girl armor', 'asuna_(sao)')
+        kirito = post('kirito sword_art_online solo 1boy sword', 'kirito')
+        together = post('asuna_(sao) kirito sword_art_online 1girl 1boy sword', 'asuna_(sao) kirito')
+        self.assertIsNone(app.art_rejection(asuna, 'asuna', 'Danbooru'))
+        self.assertIsNone(app.art_rejection(kirito, 'kirito', 'Danbooru'))
+        self.assertIsNone(app.art_rejection(together, 'together', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(kirito, 'asuna', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(asuna, 'together', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(post('asuna_(sao) kirito sword_art_online solo 1girl', 'asuna_(sao) kirito'), 'together', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(post('asuna_(sao) kirito sword_art_online 1girl 3boys', 'asuna_(sao) kirito kibaou'), 'together', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(post('asuna_(sao) sword_art_online solo 1girl ai-generated', 'asuna_(sao)'), 'asuna', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(post('asuna_(sao) sword_art_online solo 1girl bikini', 'asuna_(sao)'), 'asuna', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(post('asuna_(sao) sword_art_online solo 1girl crossover', 'asuna_(sao)'), 'asuna', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(post('asuna_(sao) solo 1girl', 'asuna_(sao)'), 'asuna', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection(post('asuna_(sao) sword_art_online solo 1girl', rating='e'), 'asuna', 'Danbooru'))
+        self.assertIsNotNone(app.art_rejection({'id': 1, 'rating': 'g'}, 'asuna', 'Danbooru'))
+        self.assertIsNone(app.art_rejection(post('yuuki_asuna kirigaya_kazuto sword_art_online male sword'), 'together', 'Konachan'))
+
+    def test_filter_retries_first_page_and_never_downloads_unrelated_image(self):
+        from unittest.mock import Mock
+        unsuitable = Mock(); unsuitable.json.return_value = [{'id': 7, 'rating': 'g', 'tag_string': 'kirito sword_art_online 1boy solo', 'file_url': 'https://cdn.donmai.us/wrong.jpg'}]
+        suitable = Mock(); suitable.json.return_value = [{'id': 8, 'rating': 'g', 'tag_string': 'asuna_(sao) sword_art_online 1girl solo', 'file_url': 'https://cdn.donmai.us/right.jpg'}]
+        with patch.object(app.random, 'randint', return_value=8), patch.object(app.requests, 'get', side_effect=[unsuitable, suitable]) as req, patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')) as image:
+            result = app.get_art(None, 'asuna')
+        self.assertEqual(result[0], 'Danbooru:8')
+        image.assert_called_once()
+        self.assertEqual(image.call_args.args[0], 'https://cdn.donmai.us/right.jpg')
+        self.assertEqual(req.call_count, 2)
+        self.assertIn('не та категория персонажей', str(self.client.get('/api/status').json['events']))
+
     def test_realistic_danbooru_search_and_image(self):
         from unittest.mock import Mock
         response = Mock()
-        response.json.return_value = [{'id': 5, 'rating': 'g', 'large_file_url': 'https://cdn.donmai.us/sample/art.jpg'}]
+        response.json.return_value = [{'id': 5, 'rating': 'g', 'tag_string': 'asuna_(sao) sword_art_online solo 1girl', 'tag_string_character': 'asuna_(sao)', 'large_file_url': 'https://cdn.donmai.us/sample/art.jpg'}]
         with patch.object(app.requests, 'get', return_value=response) as get, patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')):
             result = app.get_art(None, 'asuna')
         self.assertEqual(result, ('Danbooru:5', b'jpeg', 'image/jpeg', 'https://danbooru.donmai.us/posts/5'))
@@ -68,30 +104,30 @@ class BotTests(unittest.TestCase):
     def test_empty_danbooru_falls_back_to_safebooru(self):
         from unittest.mock import Mock
         empty = Mock(); empty.json.return_value = []
-        safe = Mock(); safe.json.return_value = [{'id': 8, 'rating': 'safe', 'sample_url': 'https://safebooru.org/samples/a.jpg'}]
+        safe = Mock(); safe.json.return_value = [{'id': 8, 'rating': 'safe', 'tags': 'yuuki_asuna sword_art_online solo 1girl', 'sample_url': 'https://safebooru.org/samples/a.jpg'}]
         with patch.object(app.random, 'randint', return_value=1), patch.object(app.requests, 'get', side_effect=[empty, safe]), patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')):
-            result = app.get_art(None)
+            result = app.get_art(None, 'asuna')
         self.assertEqual(result[0], 'Safebooru:8')
         self.assertIn('safebooru.org', result[3])
         messages = str(self.client.get('/api/status').json['events'])
-        self.assertIn('Danbooru: арты не найдены', messages)
+        self.assertIn('Danbooru: ничего не найдено', messages)
         self.assertIn('Safebooru: арт №8', messages)
 
     def test_two_sources_down_konachan_works(self):
         from unittest.mock import Mock
         import requests
-        safe = Mock(); safe.json.return_value = [{'id': 12, 'rating': 's', 'sample_url': 'https://konachan.net/sample/a.jpg'}]
+        safe = Mock(); safe.json.return_value = [{'id': 12, 'rating': 's', 'tags': 'yuuki_asuna sword_art_online long_hair', 'sample_url': 'https://konachan.net/sample/a.jpg'}]
         with patch.object(app.requests, 'get', side_effect=[requests.Timeout(), requests.ConnectionError(), safe]), patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')):
-            result = app.get_art(None)
+            result = app.get_art(None, 'asuna')
         self.assertEqual(result[0], 'Konachan:12')
         self.assertIn('konachan.net/post/show/12', result[3])
 
     def test_empty_random_page_retries_first_page(self):
         from unittest.mock import Mock
         empty = Mock(); empty.json.return_value = []
-        found = Mock(); found.json.return_value = [{'id': 51, 'rating': 'g', 'file_url': 'https://cdn.donmai.us/a.jpg'}]
+        found = Mock(); found.json.return_value = [{'id': 51, 'rating': 'g', 'tag_string': 'asuna_(sao) sword_art_online solo 1girl', 'file_url': 'https://cdn.donmai.us/a.jpg'}]
         with patch.object(app.random, 'randint', return_value=8), patch.object(app.requests, 'get', side_effect=[empty, found]) as get, patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')):
-            result = app.get_art(None)
+            result = app.get_art(None, 'asuna')
         self.assertEqual(result[0], 'Danbooru:51')
         self.assertEqual(get.call_args_list[1].kwargs['params']['page'], 1)
 
@@ -139,7 +175,8 @@ class BotTests(unittest.TestCase):
         from unittest.mock import Mock
         for mode in ('asuna', 'kirito', 'together'):
             response = Mock()
-            response.json.return_value = [{'id': 5, 'rating': 'g', 'large_file_url': 'https://cdn.donmai.us/a.jpg'}]
+            tags = {'asuna': 'asuna_(sao) sword_art_online solo 1girl', 'kirito': 'kirito sword_art_online solo 1boy', 'together': 'asuna_(sao) kirito sword_art_online 1girl 1boy'}
+            response.json.return_value = [{'id': 5, 'rating': 'g', 'tag_string': tags[mode], 'large_file_url': 'https://cdn.donmai.us/a.jpg'}]
             with self.subTest(mode=mode), patch.object(app.requests, 'get', return_value=response) as request, patch.object(app, 'download_image', return_value=(b'jpeg', 'image/jpeg')):
                 app.get_art(None, mode)
                 self.assertEqual(request.call_args.kwargs['params']['tags'], app.SOURCES[0]['tags'][mode])

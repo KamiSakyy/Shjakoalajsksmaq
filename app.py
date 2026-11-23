@@ -243,6 +243,64 @@ def download_image(url, source):
             response.close()
     raise ValueError('слишком много перенаправлений')
 
+ASUNA_TAGS = {'asuna_(sao)', 'asuna_(sword_art_online)', 'yuuki_asuna',
+              'asuna_(sao-alo)', 'asuna_(stacia)_(sao)', 'erika_(sao)', 'titania_(sao)'}
+KIRITO_TAGS = {'kirito', 'kirigaya_kazuto', 'kirito_(sao)', 'kazuto_kirigaya'}
+EXCLUDED_TAGS = {
+    'crossover', 'real_life', 'cosplay', 'photo_(medium)', 'photograph', 'figure', 'doll',
+    'character-themed_clothes', 'meme', 'parody', 'ai-generated', 'ai_generated', 'ai-assisted',
+    'ai_assisted', 'ai-generated_background', 'ai_generated_background',
+    'lowres', 'bad_anatomy', 'gore', 'violence', 'blood', 'nudity', 'nude', 'nude_female',
+    'nude_male', 'nipples', 'underwear', 'lingerie', 'panties', 'bikini', 'swimsuit',
+    'sexually_suggestive', 'explicit', 'bound', 'tied_up',
+}
+
+
+def art_rejection(post, category, source_name):
+    """Reject suspicious candidates using metadata; tags cannot guarantee image content."""
+    if not isinstance(post, dict) or type(post.get('id')) is not int or post['id'] <= 0:
+        return 'нет ID'
+    if post.get('rating') not in ('g', 'general', 's', 'safe'):
+        return 'неподходящий рейтинг'
+    tag_text = post.get('tag_string') or post.get('tags')
+    if not isinstance(tag_text, str) or not tag_text.strip():
+        return 'нет тегов для проверки'
+    tags = set(tag_text.lower().split())
+    characters = post.get('tag_string_character')
+    characters = set(characters.lower().split()) if isinstance(characters, str) and characters.strip() else tags
+    has_asuna = bool(characters & ASUNA_TAGS)
+    has_kirito = bool(characters & KIRITO_TAGS)
+    if not any(tag == 'sword_art_online' or tag.startswith('sword_art_online_') for tag in tags):
+        return 'нет тега SAO'
+    if category == 'asuna' and (not has_asuna or has_kirito):
+        return 'не та категория персонажей'
+    if category == 'kirito' and (not has_kirito or has_asuna):
+        return 'не та категория персонажей'
+    if category == 'together' and not (has_asuna and has_kirito):
+        return 'нет обоих персонажей'
+    if tags & EXCLUDED_TAGS:
+        return 'неподходящий тип или содержание'
+    if tags & {'group', 'multiple_girls', 'multiple_boys', 'crowd', '1other'}:
+        return 'группа персонажей'
+    for tag in tags:
+        if re.fullmatch(r'(?:[2-9]|[1-9][0-9]+)(?:girls|boys|others)', tag):
+            return 'лишние персонажи'
+    if isinstance(post.get('tag_string_character'), str) and post['tag_string_character'].strip():
+        if characters - ASUNA_TAGS - KIRITO_TAGS:
+            return 'другие персонажи'
+    if category == 'asuna' and tags & {'1boy', 'male', 'male_focus'}:
+        return 'лишние персонажи'
+    if category == 'kirito' and tags & {'1girl', 'female', 'female_focus'}:
+        return 'лишние персонажи'
+    if category == 'together':
+        if 'solo' in tags:
+            return 'персонаж изображён один'
+        # Danbooru and Safebooru use these tags for visible people. Konachan's
+        # older schema often omits them, but explicitly marks larger groups.
+        if source_name != 'Konachan' and not {'1girl', '1boy'} <= tags:
+            return 'не подтверждены оба персонажа'
+    return None
+
 
 def get_art(last_id, mode='mixed'):
     category = random.choice(('asuna', 'kirito', 'together')) if mode == 'mixed' else mode
@@ -253,48 +311,60 @@ def get_art(last_id, mode='mixed'):
     for source in SOURCES:
         name = source['name']
         page = random.randint(source['first_page'], source['first_page'] + 8)
-        params = {'tags': source['tags'][category], 'limit': 40, source['page_key']: page}
-        if name == 'Safebooru':
-            params.update({'page': 'dapi', 's': 'post', 'q': 'index', 'json': 1})
-        event('info', f'{name}: ищем арты (страница {page}).')
-        try:
-            response = requests.get(source['endpoint'], params=params, headers=HEADERS, timeout=(5, 12))
-            response.raise_for_status()
-            posts = response.json()
-            if isinstance(posts, dict):
-                posts = posts.get('post', [])
-            if not isinstance(posts, list):
-                raise ValueError('неверный формат')
-            # A page beyond the end is common for small galleries. Retry the first page.
-            if not posts and page != source['first_page']:
-                params[source['page_key']] = source['first_page']
+        pages = [page] if page == source['first_page'] else [page, source['first_page']]
+        failures = []
+        usable = []
+        had_posts = False
+        network_failed = False
+        for page in pages:
+            params = {'tags': source['tags'][category], 'limit': 40, source['page_key']: page}
+            if name == 'Safebooru':
+                params.update({'page': 'dapi', 's': 'post', 'q': 'index', 'json': 1})
+            event('info', f'{name}: ищем арты (страница {page}).')
+            try:
                 response = requests.get(source['endpoint'], params=params, headers=HEADERS, timeout=(5, 12))
                 response.raise_for_status()
                 posts = response.json()
                 if isinstance(posts, dict):
                     posts = posts.get('post', [])
-            if not isinstance(posts, list):
-                raise ValueError('неверный формат')
-        except (requests.RequestException, ValueError) as exc:
-            reason = network_reason(exc)
+                if not isinstance(posts, list):
+                    raise ValueError('неверный формат')
+            except (requests.RequestException, ValueError) as exc:
+                reason = network_reason(exc)
+                failures.append(reason)
+                event('warning', f'{name}: {reason}. Пробуем следующий источник.')
+                network_failed = True
+                break
+            had_posts = had_posts or bool(posts)
+            rejected = {}
+            for post in posts:
+                reason = art_rejection(post, category, name)
+                if not reason and str(last_id) in (f"{name}:{post['id']}", str(post['id'])):
+                    reason = 'недавно показанный арт'
+                if reason:
+                    rejected[reason] = rejected.get(reason, 0) + 1
+                else:
+                    usable.append(post)
+            if posts:
+                summary = ', '.join(f'{label}: {count}' for label, count in rejected.items())
+                message = f'{name}: проверено {len(posts)}, подходит {len(usable)}.'
+                if summary:
+                    message += ' Отсеяно: ' + summary + '.'
+                event('info', message)
+            if usable:
+                break
+            if page != pages[-1]:
+                event('info', f'{name}: подходящих артов на странице нет, проверяем первую.')
+        if not usable:
+            reason = failures[0] if network_failed else ('нет артов с нужными тегами' if had_posts else 'ничего не найдено')
             reasons.append(f'{name}: {reason}')
-            event('warning', f'{name}: {reason}. Пробуем следующий источник.')
+            if not network_failed:
+                event('warning', f'{name}: {reason}. Пробуем следующий источник.')
             continue
-        if not posts:
-            reasons.append(f'{name}: ничего не найдено')
-            event('warning', f'{name}: арты не найдены. Пробуем следующий источник.')
-            continue
-        random.shuffle(posts)
-        failures = []
+        random.shuffle(usable)
         count = 0
-        for post in posts:
-            if not isinstance(post, dict) or not post.get('id'):
-                continue
+        for post in usable:
             art_key = f"{name}:{post['id']}"
-            if str(last_id) in (art_key, str(post['id'])):
-                continue
-            if post.get('rating') and post['rating'] not in ('g', 'general', 's', 'safe'):
-                continue
             candidates = [post.get('large_file_url'), post.get('sample_url'), post.get('jpeg_url'), post.get('file_url')]
             if name == 'Safebooru' and post.get('directory') is not None and post.get('image'):
                 candidates.append(f"/images/{post['directory']}/{post['image']}")
@@ -309,15 +379,15 @@ def get_art(last_id, mode='mixed'):
                 except requests.RequestException as exc:
                     failures.append(network_reason(exc))
                     if isinstance(exc, requests.HTTPError) and exc.response is not None and exc.response.status_code == 429:
-                        count = 4  # Do not keep hammering a rate-limited source.
+                        count = 4
                 except ValueError as exc:
                     failures.append(str(exc))
             if count >= 4:
                 break
         reason = ', '.join(dict.fromkeys(failures)) if failures else 'нет подходящих файлов'
         reasons.append(f'{name}: {reason}')
-        event('warning', f'{name}: найдено {len(posts)} записей, скачать не удалось: {reason}. Пробуем следующий источник.')
-    raise RuntimeError('Все источники недоступны. ' + '; '.join(reasons))
+        event('warning', f'{name}: найдено {len(usable)} подходящих записей, скачать не удалось: {reason}. Пробуем следующий источник.')
+    raise RuntimeError('Не удалось подобрать арт: ' + '; '.join(reasons))
 
 
 def rotate_once():
