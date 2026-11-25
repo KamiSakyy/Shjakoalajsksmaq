@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f5">
+  <meta name="description" content="Загружайте файлы и делитесь прямой ссылкой на скачивание.">
+  <title>перекинь — файлы по ссылке</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top"><a class="brand" href="/"><span class="brand-icon">↗</span> перекинь<span class="brand-dot">.</span></a><span class="top-note"><span class="status"></span> просто обмен файлами</span></header>
+<main>
+  <div class="intro"><div class="eyebrow"><span>✳</span> БЫСТРО. ПРОСТО. ПО ССЫЛКЕ.</div><h1>Файлы в путь<span>.</span></h1><p>Загрузи файл, получи ссылку и поделись ей с кем угодно. Ничего лишнего.</p></div>
+  <section class="card" aria-label="Загрузка файла">
+    <div class="card-top"><div><span class="small-label">ОБМЕН ФАЙЛАМИ</span><h2>Отправить файл</h2></div><span class="step">01 / 01</span></div>
+    <label class="dropzone" id="dropzone" for="file"><input id="file" type="file"><span class="upload-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m-4 4 4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></span><strong>Выбери файл <span>или перетащи сюда</span></strong><small>Любой формат · до 100 МБ</small><span class="choose">Выбрать файл <span>↗</span></span></label>
+    <div class="selected" id="selected" hidden><div class="file-icon">▤</div><div class="file-info"><strong id="filename"></strong><small id="filesize"></small></div><button class="remove" id="remove" aria-label="Удалить файл">×</button></div>
+    <button class="submit" id="upload" disabled>Загрузить файл <span>↗</span></button>
+    <div class="progress" id="progress" hidden><div id="progressbar"></div></div>
+    <p class="message" id="message" role="status" aria-live="polite"></p>
+    <div class="result" id="result" hidden><span class="small-label">ГОТОВО! ВАША ПРЯМАЯ ССЫЛКА</span><div class="link-row"><input id="link" readonly aria-label="Ссылка на скачивание"><button id="copy">Копировать</button></div><p>По этой ссылке файл скачивается напрямую.</p></div>
+    <div class="card-bottom"><span>✳ &nbsp; Без регистрации</span><span>Прямая ссылка ↗</span></div>
+  </section>
+  <div class="how"><div class="how-heading"><span class="small-label">ВСЁ ПРОСТО</span><h2>Как это работает?</h2></div><div class="steps"><div><span class="number">01</span><strong>Выбери файл</strong><p>С телефона или компьютера.</p></div><div><span class="number">02</span><strong>Получи ссылку</strong><p>Мы подготовим её после загрузки.</p></div><div><span class="number">03</span><strong>Поделись</strong><p>Отправь ссылку кому угодно.</p></div></div></div>
+</main><footer><a class="brand footer-brand" href="/">перекинь<span class="brand-dot">.</span></a><span>Меньше действий. Больше обмена.</span><span>Сделано для ваших файлов ↗</span></footer>
+</body></html>
