@@ -184,8 +184,19 @@ EOF
     mkdir -p "$JNILIBS_DIR"
 
     find "$BUILD_DIR" -name "libmain.so" -exec cp -v {} "$JNILIBS_DIR/libmain.so" \;
-    find "$BUILD_DIR" -name "libSDL3.so" -exec cp -v {} "$JNILIBS_DIR/libSDL3.so" \;
+    find "$BUILD_DIR" -name "libSDL3.so*" ! -type l -exec cp -v {} "$JNILIBS_DIR/libSDL3.so" \;
     cp -v "$TOOLCHAIN/sysroot/usr/lib/${TRIPLE}/libc++_shared.so" "$JNILIBS_DIR/libc++_shared.so"
+
+    # Fix versioned SONAME / DT_NEEDED (e.g. libSDL3.so.0 -> libSDL3.so) for Android's linker
+    if command -v patchelf >/dev/null 2>&1; then
+        patchelf --set-soname libSDL3.so "$JNILIBS_DIR/libSDL3.so" || true
+        for needed in $(patchelf --print-needed "$JNILIBS_DIR/libmain.so" 2>/dev/null | grep -E '^libSDL3\.so\.' || true); do
+            echo "==> Patching DT_NEEDED $needed -> libSDL3.so in $ABI/libmain.so"
+            patchelf --replace-needed "$needed" libSDL3.so "$JNILIBS_DIR/libmain.so"
+        done
+        echo "==> $ABI/libmain.so DT_NEEDED:"
+        patchelf --print-needed "$JNILIBS_DIR/libmain.so"
+    fi
 
     if [ "$FIRST_ABI" -eq 1 ]; then
         find "$BUILD_DIR" -name "00-taisei.zip" -exec cp -v {} "$ASSETS_DIR/00-taisei.zip" \;

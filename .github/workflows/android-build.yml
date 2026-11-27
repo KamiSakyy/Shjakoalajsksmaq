@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            ninja-build cmake pkg-config gettext \
+            ninja-build cmake pkg-config gettext patchelf \
             python3 python3-pip python3-zstandard \
             glslang-tools spirv-tools \
             zip unzip
@@ -78,6 +78,9 @@ jobs:
     timeout-minutes: 25
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Enable KVM for fast hardware-accelerated Android Emulator
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -100,25 +103,7 @@ jobs:
           heap-size: 512M
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
-          script: |
-            set -e
-            echo "==> Installing signed Release APK..."
-            adb install -r taisei-v1.4.6-android-release.apk
-            adb logcat -c
-            echo "==> Launching Taisei Project..."
-            adb shell am start -n org.taisei_project.taisei/.TaiseiActivity
-            echo "==> Waiting 20s for asset extraction and game startup..."
-            sleep 20
-            adb logcat -d > emulator-logcat.txt
-            adb exec-out screencap -p > emulator-screenshot.png || true
-            PID=$(adb shell pidof org.taisei_project.taisei || true)
-            echo "==> Taisei process PID: ${PID:-NOT RUNNING}"
-            if [ -z "$PID" ]; then
-              echo "::error::Taisei crashed or exited on Android Emulator!"
-              grep -E "FATAL|AndroidRuntime|Taisei|SDL|SIGSEGV|SIGABRT" emulator-logcat.txt | tail -n 10 | while IFS= read -r line; do echo "::error::$line"; done
-              exit 1
-            fi
-            echo "==> SUCCESS: Taisei Project is running smoothly on Android 14 Emulator (PID=$PID)!"
+          script: bash scripts/test-emulator.sh taisei-v1.4.6-android-release.apk
 
       - name: Upload Emulator Screenshot & Logcat
         if: always()
