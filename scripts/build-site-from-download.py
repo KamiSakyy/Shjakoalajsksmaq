@@ -83,13 +83,15 @@ for current, dirs, files in os.walk(project_root):
     for filename in files:
         path = pathlib.Path(current) / filename
         rel = path.relative_to(project_root).as_posix()
-        if rel.startswith(("src/app/api/", "src/db/")) or rel in {"src/lib/books.ts", "src/lib/book-input.ts"}:
+        if rel.startswith(("src/app/api/", "src/db/")) or rel in {"src/lib/books.ts", "src/lib/book-input.ts", "src/app/page.tsx", "src/app/layout.tsx"}:
             all_sources.append((rel, path))
+lib_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/lib").glob("*") if path.is_file())
+print("::notice title=Application source layout::" + urllib.parse.quote(", ".join(lib_files), safe=""), flush=True)
 print("::notice title=Downloaded app project::" + urllib.parse.quote(str(project_root), safe=""), flush=True)
 print("::notice title=API and database files::" + urllib.parse.quote(", ".join(rel for rel, _ in all_sources), safe=""), flush=True)
 for rel, path in sorted(all_sources):
-    if path.suffix in {".ts", ".tsx", ".js", ".json", ".sql"} and path.stat().st_size < 15000:
-        content = path.read_text(encoding="utf-8", errors="replace")[:2400]
+    if path.suffix in {".ts", ".tsx", ".js", ".json", ".sql"} and (path.stat().st_size < 15000 or rel in {"src/db/schema.ts", "src/lib/books.ts", "src/app/page.tsx", "src/app/layout.tsx"}):
+        content = path.read_text(encoding="utf-8", errors="replace")[:5000 if rel in {"src/db/schema.ts", "src/lib/books.ts", "src/app/page.tsx", "src/app/layout.tsx"} else 1800]
         print(f"::notice title=Source {urllib.parse.quote(rel, safe='')}::{urllib.parse.quote(content, safe='')}", flush=True)
 for base in (project_root / "src/app", project_root / "src/components"):
     if not base.is_dir():
