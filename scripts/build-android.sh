@@ -30,8 +30,8 @@ mkdir -p "$WORK_DIR"
 TAISEI_DIR="$WORK_DIR/taisei"
 
 if [ ! -d "$TAISEI_DIR" ]; then
-    echo "==> Cloning Taisei Project ($TAISEI_TAG)..."
-    git clone --depth 1 --branch "$TAISEI_TAG" https://github.com/taisei-project/taisei.git "$TAISEI_DIR"
+    echo "==> Cloning Taisei Project ($TAISEI_TAG) with submodules..."
+    git clone --depth 1 --recursive --shallow-submodules --branch "$TAISEI_TAG" https://github.com/taisei-project/taisei.git "$TAISEI_DIR"
 fi
 
 echo "==> Applying Android patches to Taisei..."
@@ -138,7 +138,6 @@ meson setup "$BUILD_DIR" "$TAISEI_DIR" \
     -Da_sdl=enabled \
     -Da_null=disabled \
     -Dpackage_data=enabled \
-    -Dshader_transpiler=disabled \
     -Dvalidate_glsl=disabled \
     -Ddocs=disabled \
     -Dinstall_freedesktop=disabled \
