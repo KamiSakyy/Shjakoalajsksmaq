@@ -54,16 +54,22 @@ export default function ProjectPage() { return <Editor initialBook={emptyBook} p
 ''')
 
 # Static export needs a concrete output and no server actions.
-config = root / "next.config.ts"
+config = next((root / name for name in ("next.config.ts", "next.config.mjs", "next.config.js") if (root / name).exists()), root / "next.config.mjs")
 if config.exists():
     text = config.read_text()
-    if re.search(r'output\s*:', text):
-        text = re.sub(r'output\s*:\s*["\'][^"\']+["\']', 'output: "export"', text)
+    if re.search(r'^\s*output\s*:', text, re.M):
+        text = re.sub(r'^(\s*output\s*:\s*)[^,\n]+', r'\1"export"', text, count=1, flags=re.M)
     else:
-        text = re.sub(r'(const\s+nextConfig\s*=\s*\{)', r'\1\n  output: "export",', text, count=1)
+        match = re.search(r'const\s+nextConfig(?:\s*:\s*[^=]+)?\s*=\s*\{', text)
+        if match:
+            text = text[:match.end()] + '\n  output: "export",' + text[match.end():]
+        elif re.search(r'export\s+default\s*\{', text):
+            text = re.sub(r'(export\s+default\s*\{)', r'\1\n  output: "export",', text, count=1)
+        else:
+            raise SystemExit("Could not force static output in Next.js config")
     config.write_text(text)
 else:
-    (root / "next.config.mjs").write_text('const nextConfig = { output: "export", trailingSlash: false };\nexport default nextConfig;\n')
+    config.write_text('const nextConfig = { output: "export", trailingSlash: false };\nexport default nextConfig;\n')
 
 # Load persisted data after hydration. Keep the original rich interface and behavior intact.
 for rel, needle, addition in [
