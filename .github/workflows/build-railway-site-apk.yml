@@ -62,6 +62,18 @@ jobs:
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
           test -n "$APKSIGNER"
           "$APKSIGNER" verify --verbose android/app/build/outputs/apk/release/app-release.apk
+      - name: Verify bundled offline app files
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
+          grep -qx 'assets/www/index.html' "$RUNNER_TEMP/apk-files.txt"
+          grep -qx 'assets/www/offline-api.js' "$RUNNER_TEMP/apk-files.txt"
+          grep -qx 'assets/www/offline-boot.js' "$RUNNER_TEMP/apk-files.txt"
+          grep -qx 'assets/www/jszip.min.js' "$RUNNER_TEMP/apk-files.txt"
+          grep -Eq '^assets/www/project/local(\.html|/index\.html)$' "$RUNNER_TEMP/apk-files.txt"
+          grep -Eq '^assets/www/_next/static/.+\.js$' "$RUNNER_TEMP/apk-files.txt"
       - uses: actions/upload-artifact@v4
         with:
           name: offline-android-release-apk

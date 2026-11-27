@@ -183,6 +183,20 @@ for current, dirs, files in os.walk(web_root):
 if next_static_root and next_static_root.is_dir():
     shutil.copytree(next_static_root, WEB_ASSETS / "_next/static", dirs_exist_ok=True)
 
+# Next's public/ files are copied into `out/` by static export, but not into
+# `.next/server/app`; stage them explicitly for both output layouts.
+public_root = project_root / "public"
+if public_root.is_dir():
+    for current, dirs, files in os.walk(public_root):
+        dirs[:] = [name for name in dirs if not name.startswith(".env")]
+        relative = pathlib.Path(current).relative_to(public_root)
+        destination = WEB_ASSETS / relative
+        destination.mkdir(parents=True, exist_ok=True)
+        for filename in files:
+            if filename.startswith(".env") or filename.endswith(".map"):
+                continue
+            shutil.copy2(pathlib.Path(current) / filename, destination / filename)
+
 if not (WEB_ASSETS / "index.html").is_file():
     raise SystemExit("Selected website output did not contain index.html")
 count = sum(len(files) for _, _, files in os.walk(WEB_ASSETS))
