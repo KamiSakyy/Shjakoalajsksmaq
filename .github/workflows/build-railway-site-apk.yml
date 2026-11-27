@@ -68,6 +68,11 @@ jobs:
           set -euo pipefail
           APK=android/app/build/outputs/apk/release/app-release.apk
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
+          staged_count="$(find android/app/src/main/assets/www -type f | wc -l)"
+          staged_next="$(find android/app/src/main/assets/www/_next -type f 2>/dev/null | head -n 20 | sed 's#^android/app/src/main/assets/www/##' | paste -sd ',' - || true)"
+          echo "::notice title=APK website assets::staged_files=$staged_count; staged_next=${staged_next:-none}"
+          embedded="$(grep '^assets/www/' "$RUNNER_TEMP/apk-files.txt" | head -n 40 | paste -sd ',' - || true)"
+          echo "::notice title=APK embedded website assets::$embedded"
           for required in index.html offline-api.js offline-boot.js jszip.min.js; do
             if ! grep -qx "assets/www/$required" "$RUNNER_TEMP/apk-files.txt"; then
               echo "::error title=Offline APK payload::$required is missing from assets/www"
