@@ -1,0 +1,7 @@
+Asphalt 02 by Rob Tuytel (Poly Haven), CC0 1.0.
+https://polyhaven.com/a/asphalt_02
+Diffuse, normal and roughness maps resized and compressed for this game.
+
+Concrete Pavement by Charlotte Baglioni (Poly Haven), CC0 1.0.
+https://polyhaven.com/a/concrete_pavement
+Diffuse and normal maps resized and compressed for this game.
