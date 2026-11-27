@@ -187,6 +187,12 @@ EOF
     find "$BUILD_DIR" -name "libSDL3.so*" ! -type l -exec cp -v {} "$JNILIBS_DIR/libSDL3.so" \;
     cp -v "$TOOLCHAIN/sysroot/usr/lib/${TRIPLE}/libc++_shared.so" "$JNILIBS_DIR/libc++_shared.so"
 
+    if [ ! -f "$JNILIBS_DIR/libmain.so" ] || [ ! -f "$JNILIBS_DIR/libSDL3.so" ]; then
+        echo "ERROR: Missing libmain.so or libSDL3.so for $ABI!"
+        find "$BUILD_DIR" -maxdepth 5 -name "*.so*"
+        exit 1
+    fi
+
     # Fix versioned SONAME / DT_NEEDED (e.g. libSDL3.so.0 -> libSDL3.so) for Android's linker
     if command -v patchelf >/dev/null 2>&1; then
         patchelf --set-soname libSDL3.so "$JNILIBS_DIR/libSDL3.so" || true
