@@ -83,14 +83,14 @@ for current, dirs, files in os.walk(project_root):
     for filename in files:
         path = pathlib.Path(current) / filename
         rel = path.relative_to(project_root).as_posix()
-        if rel.startswith(("src/app/api/", "src/db/")) or rel.startswith(("src/lib/", "src/app/")):
+        if rel.startswith(("src/app/api/", "src/db/", "src/lib/", "src/app/", "src/components/")):
             all_sources.append((rel, path))
 lib_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/lib").glob("*") if path.is_file())
 app_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/app").rglob("*") if path.is_file() and ".next" not in path.parts)[:100]
 component_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/components").rglob("*") if path.is_file())[:120]
 print("::notice title=Application source layout::" + urllib.parse.quote(", ".join(lib_files + app_files + component_files), safe=""), flush=True)
 print("::notice title=API and database files::" + urllib.parse.quote(", ".join(rel for rel, _ in all_sources), safe=""), flush=True)
-priority_files = ["src/db/schema.ts", "src/lib/types.ts", "src/app/project/[id]/page.tsx", "src/components/library.tsx", "src/lib/client.ts", "src/lib/books.ts"]
+priority_files = ["src/components/library.tsx", "src/components/editor.tsx", "src/app/project/[id]/page.tsx", "src/components/book-panels.tsx", "src/lib/client.ts", "src/lib/books.ts"]
 ordered_sources = sorted(all_sources, key=lambda item: (priority_files.index(item[0]) if item[0] in priority_files else len(priority_files), item[0]))
 for rel, path in ordered_sources[:6]:
     if path.suffix in {".ts", ".tsx", ".js", ".json", ".sql"}:
