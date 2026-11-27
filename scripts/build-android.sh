@@ -184,7 +184,7 @@ EOF
     mkdir -p "$JNILIBS_DIR"
 
     find "$BUILD_DIR" -name "libmain.so" -exec cp -v {} "$JNILIBS_DIR/libmain.so" \;
-    find "$BUILD_DIR" -name "libSDL3.so*" ! -type l -exec cp -v {} "$JNILIBS_DIR/libSDL3.so" \;
+    find "$BUILD_DIR" \( -name "libSDL3_shared.so" -o -name "libSDL3.so*" \) ! -type l -exec cp -v {} "$JNILIBS_DIR/libSDL3.so" \;
     cp -v "$TOOLCHAIN/sysroot/usr/lib/${TRIPLE}/libc++_shared.so" "$JNILIBS_DIR/libc++_shared.so"
 
     if [ ! -f "$JNILIBS_DIR/libmain.so" ] || [ ! -f "$JNILIBS_DIR/libSDL3.so" ]; then
@@ -193,10 +193,10 @@ EOF
         exit 1
     fi
 
-    # Fix versioned SONAME / DT_NEEDED (e.g. libSDL3.so.0 -> libSDL3.so) for Android's linker
+    # Fix SONAME / DT_NEEDED (libSDL3_shared.so or libSDL3.so.0 -> libSDL3.so) for Android's linker
     if command -v patchelf >/dev/null 2>&1; then
         patchelf --set-soname libSDL3.so "$JNILIBS_DIR/libSDL3.so" || true
-        for needed in $(patchelf --print-needed "$JNILIBS_DIR/libmain.so" 2>/dev/null | grep -E '^libSDL3\.so\.' || true); do
+        for needed in $(patchelf --print-needed "$JNILIBS_DIR/libmain.so" 2>/dev/null | grep -E '^libSDL3(_shared)?\.so' | grep -v '^libSDL3\.so$' || true); do
             echo "==> Patching DT_NEEDED $needed -> libSDL3.so in $ABI/libmain.so"
             patchelf --replace-needed "$needed" libSDL3.so "$JNILIBS_DIR/libmain.so"
         done
