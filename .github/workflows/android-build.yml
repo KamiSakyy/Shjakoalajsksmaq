@@ -1,0 +1,59 @@
+name: Build Taisei Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'arena/**'
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            meson ninja-build cmake pkg-config \
+            python3 python3-pip python3-zstandard \
+            glslang-tools spirv-tools \
+            zip unzip
+
+      - name: Build Taisei native arm64-v8a libraries & assets
+        run: |
+          chmod +x scripts/build-android.sh
+          ./scripts/build-android.sh
+
+      - name: Build Android APK (debug)
+        working-directory: android
+        run: |
+          gradle assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk taisei-v1.4.6-android-arm64-debug.apk
+          ls -lh taisei-v1.4.6-android-arm64-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: taisei-android-apk
+          path: taisei-v1.4.6-android-arm64-debug.apk
+          retention-days: 30
