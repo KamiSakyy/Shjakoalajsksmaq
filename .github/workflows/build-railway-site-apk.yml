@@ -83,9 +83,9 @@ jobs:
             exit 1
           fi
           if ! grep -Eq '^assets/www/_next/static/.+\.js$' "$RUNNER_TEMP/apk-files.txt"; then
-            echo "::error title=Offline APK payload::Next.js JavaScript chunks are missing"
-            grep '^assets/www/_next/' "$RUNNER_TEMP/apk-files.txt" || true
-            { echo 'Missing Next.js JavaScript chunks'; grep '^assets/www/_next/' "$RUNNER_TEMP/apk-files.txt" || true; } >> "$GITHUB_STEP_SUMMARY"
+            next_files="$(grep '^assets/www/_next/' "$RUNNER_TEMP/apk-files.txt" | head -n 40 | paste -sd ',' - || true)"
+            echo "::error title=Offline APK payload::Next.js JavaScript chunks are missing. _next entries: ${next_files:-none}"
+            { echo 'Missing Next.js JavaScript chunks'; echo "_next entries: ${next_files:-none}"; } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           echo 'Offline web bundle verified: index, local API, JSZip, editor route, and Next.js chunks.'
