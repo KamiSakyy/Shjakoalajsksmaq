@@ -151,12 +151,11 @@ for dirname in ("dist", "build", "out", "www", "public"):
         break
 if web_root is None and (project_root / "index.html").is_file():
     web_root = project_root
-next_static_root = None
+next_static_root = project_root / ".next/static"
 if web_root is None and (project_root / ".next/server/app/index.html").is_file():
     # Some Next releases keep their fully prerendered app shell under .next even
     # when static export was enabled. Its HTML can still run from bundled files.
     web_root = project_root / ".next/server/app"
-    next_static_root = project_root / ".next/static"
 if web_root is None:
     indexes = []
     for current, dirs, files in os.walk(SOURCE_ROOT):
