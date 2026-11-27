@@ -76,25 +76,35 @@ for current, dirs, files in os.walk(SOURCE_ROOT):
 project_root = sorted(packages, key=lambda row: (row[0], row[1], str(row[2])))[0][2] if packages else SOURCE_ROOT
 selected = next((row for row in packages if row[2] == project_root), None)
 
-# Emit a minimal site inventory and the data/API code to Actions annotations for offline-port planning.
-details = [f"Project root: {project_root}"]
-if (project_root / "package.json").is_file():
-    package = json.loads((project_root / "package.json").read_text(encoding="utf-8"))
-    details.append("package.json: " + json.dumps({key: package.get(key) for key in ("name", "scripts", "dependencies", "devDependencies") if key in package}, ensure_ascii=False))
+# Emit separate, short Actions annotations for the DB/API implementation and frontend callers.
 all_sources = []
 for current, dirs, files in os.walk(project_root):
     dirs[:] = [name for name in dirs if name not in {"node_modules", ".git", ".next", "dist", "build", "out"}]
     for filename in files:
         path = pathlib.Path(current) / filename
         rel = path.relative_to(project_root).as_posix()
-        if rel.startswith(("src/app/api/", "src/db/")) or rel in {"src/lib/books.ts", "src/lib/settings.ts", "src/lib/book-input.ts"}:
+        if rel.startswith(("src/app/api/", "src/db/")) or rel in {"src/lib/books.ts", "src/lib/book-input.ts"}:
             all_sources.append((rel, path))
-details.append("API/data file list: " + ", ".join(rel for rel, _ in all_sources))
+print("::notice title=Downloaded app project::" + urllib.parse.quote(str(project_root), safe=""), flush=True)
+print("::notice title=API and database files::" + urllib.parse.quote(", ".join(rel for rel, _ in all_sources), safe=""), flush=True)
 for rel, path in sorted(all_sources):
     if path.suffix in {".ts", ".tsx", ".js", ".json", ".sql"} and path.stat().st_size < 15000:
-        details.append(f"--- {rel} ---\n" + path.read_text(encoding="utf-8", errors="replace")[:1800])
-encoded_details = urllib.parse.quote("\n".join(details)[:10000], safe="")
-print(f"::notice title=Downloaded site API and database summary::{encoded_details}", flush=True)
+        content = path.read_text(encoding="utf-8", errors="replace")[:2400]
+        print(f"::notice title=Source {urllib.parse.quote(rel, safe='')}::{urllib.parse.quote(content, safe='')}", flush=True)
+for base in (project_root / "src/app", project_root / "src/components"):
+    if not base.is_dir():
+        continue
+    for current, dirs, files in os.walk(base):
+        dirs[:] = [name for name in dirs if name not in {"node_modules", ".next"}]
+        for filename in files:
+            path = pathlib.Path(current) / filename
+            if path.suffix not in {".ts", ".tsx", ".js", ".jsx"} or path.stat().st_size > 30000:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if "/api/" in text:
+                excerpts = [line.strip() for line in text.splitlines() if "/api/" in line][:8]
+                rel = path.relative_to(project_root).as_posix()
+                print(f"::notice title=Frontend API calls {urllib.parse.quote(rel, safe='')}::{urllib.parse.quote(chr(10).join(excerpts), safe='')}", flush=True)
 
 if selected and selected[3]:
     print(f"Frontend project: {project_root}", flush=True)
