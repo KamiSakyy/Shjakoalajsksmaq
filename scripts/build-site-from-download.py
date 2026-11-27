@@ -83,15 +83,18 @@ for current, dirs, files in os.walk(project_root):
     for filename in files:
         path = pathlib.Path(current) / filename
         rel = path.relative_to(project_root).as_posix()
-        if rel.startswith(("src/app/api/", "src/db/")) or rel in {"src/lib/books.ts", "src/lib/book-input.ts", "src/app/page.tsx", "src/app/layout.tsx"}:
+        if rel.startswith(("src/app/api/", "src/db/")) or rel.startswith(("src/lib/", "src/app/")):
             all_sources.append((rel, path))
 lib_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/lib").glob("*") if path.is_file())
-print("::notice title=Application source layout::" + urllib.parse.quote(", ".join(lib_files), safe=""), flush=True)
+app_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/app").rglob("*") if path.is_file() and ".next" not in path.parts)[:100]
+print("::notice title=Application source layout::" + urllib.parse.quote(", ".join(lib_files + app_files), safe=""), flush=True)
 print("::notice title=Downloaded app project::" + urllib.parse.quote(str(project_root), safe=""), flush=True)
 print("::notice title=API and database files::" + urllib.parse.quote(", ".join(rel for rel, _ in all_sources), safe=""), flush=True)
-for rel, path in sorted(all_sources):
-    if path.suffix in {".ts", ".tsx", ".js", ".json", ".sql"} and (path.stat().st_size < 15000 or rel in {"src/db/schema.ts", "src/lib/books.ts", "src/app/page.tsx", "src/app/layout.tsx"}):
-        content = path.read_text(encoding="utf-8", errors="replace")[:5000 if rel in {"src/db/schema.ts", "src/lib/books.ts", "src/app/page.tsx", "src/app/layout.tsx"} else 1800]
+priority_files = ["src/db/schema.ts", "src/lib/books.ts", "src/lib/book-input.ts", "src/lib/client.ts", "src/app/page.tsx", "src/app/layout.tsx"]
+ordered_sources = sorted(all_sources, key=lambda item: (priority_files.index(item[0]) if item[0] in priority_files else len(priority_files), item[0]))
+for rel, path in ordered_sources[:7]:
+    if path.suffix in {".ts", ".tsx", ".js", ".json", ".sql"}:
+        content = path.read_text(encoding="utf-8", errors="replace")[:5000 if rel in priority_files else 1200]
         print(f"::notice title=Source {urllib.parse.quote(rel, safe='')}::{urllib.parse.quote(content, safe='')}", flush=True)
 for base in (project_root / "src/app", project_root / "src/components"):
     if not base.is_dir():
