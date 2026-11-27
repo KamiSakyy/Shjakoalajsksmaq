@@ -1,4 +1,4 @@
-name: Build Taisei Android APK
+name: Build & Test Taisei Android Release APK
 
 on:
   push:
@@ -8,16 +8,16 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-apk:
+  build-release-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -38,34 +38,94 @@ jobs:
           python3 -m pip install --break-system-packages 'meson>=1.8.0' zstandard
           meson --version
 
-      - name: Build Taisei native arm64-v8a libraries & assets
+      - name: Build Taisei native libs (arm64-v8a + x86_64) & assets
         shell: bash
         run: |
           set -o pipefail
           chmod +x scripts/build-android.sh
           if ! ./scripts/build-android.sh 2>&1 | tee build.log; then
-            tail -n 8 build.log | while IFS= read -r line; do echo "::error::$line"; done
+            tail -n 10 build.log | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
 
-      - name: Build Android APK (debug)
+      - name: Build Signed Release APK
         working-directory: android
         shell: bash
         run: |
           set -o pipefail
-          if ! gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle.log; then
-            tail -n 35 gradle.log | while IFS= read -r line; do echo "::error::$line"; done
+          if ! gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee gradle.log; then
+            tail -n 15 gradle.log | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
 
-      - name: Rename APK
+      - name: Verify APK signature & rename
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk taisei-v1.4.6-android-arm64-debug.apk
-          ls -lh taisei-v1.4.6-android-arm64-debug.apk
+          cp android/app/build/outputs/apk/release/app-release.apk taisei-v1.4.6-android-release.apk
+          ls -lh taisei-v1.4.6-android-release.apk
+          APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          "$APKSIGNER" verify --print-certs taisei-v1.4.6-android-release.apk
 
-      - name: Upload APK artifact
+      - name: Upload Release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: taisei-android-apk
-          path: taisei-v1.4.6-android-arm64-debug.apk
+          name: taisei-android-release-apk
+          path: taisei-v1.4.6-android-release.apk
           retention-days: 30
+
+  test-on-emulator:
+    needs: build-release-apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Enable KVM for fast hardware-accelerated Android Emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Download Signed Release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: taisei-android-release-apk
+
+      - name: Run Taisei Release APK on Android 14 (API 34) Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            set -e
+            echo "==> Installing signed Release APK..."
+            adb install -r taisei-v1.4.6-android-release.apk
+            adb logcat -c
+            echo "==> Launching Taisei Project..."
+            adb shell am start -n org.taisei_project.taisei/.TaiseiActivity
+            echo "==> Waiting 20s for asset extraction and game startup..."
+            sleep 20
+            adb logcat -d > emulator-logcat.txt
+            adb exec-out screencap -p > emulator-screenshot.png || true
+            PID=$(adb shell pidof org.taisei_project.taisei || true)
+            echo "==> Taisei process PID: ${PID:-NOT RUNNING}"
+            if [ -z "$PID" ]; then
+              echo "::error::Taisei crashed or exited on Android Emulator!"
+              grep -E "FATAL|AndroidRuntime|Taisei|SDL|SIGSEGV|SIGABRT" emulator-logcat.txt | tail -n 10 | while IFS= read -r line; do echo "::error::$line"; done
+              exit 1
+            fi
+            echo "==> SUCCESS: Taisei Project is running smoothly on Android 14 Emulator (PID=$PID)!"
+
+      - name: Upload Emulator Screenshot & Logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-test-results
+          path: |
+            emulator-screenshot.png
+            emulator-logcat.txt
+          retention-days: 14

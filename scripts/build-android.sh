@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/.build-taisei}"
 TAISEI_TAG="${TAISEI_TAG:-v1.4.6}"
 ANDROID_API="${ANDROID_API:-26}"
-ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
+ANDROID_ABIS="${ANDROID_ABIS:-arm64-v8a x86_64}"
 
 if [ -z "${ANDROID_NDK_HOME:-}" ]; then
     if [ -n "${ANDROID_NDK_LATEST_HOME:-}" ]; then
@@ -20,8 +20,6 @@ fi
 
 echo "==> Using ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
 TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64"
-CC="$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang"
-CXX="$TOOLCHAIN/bin/aarch64-linux-android${ANDROID_API}-clang++"
 AR="$TOOLCHAIN/bin/llvm-ar"
 STRIP="$TOOLCHAIN/bin/llvm-strip"
 RANLIB="$TOOLCHAIN/bin/llvm-ranlib"
@@ -93,8 +91,35 @@ if "host_machine.system() == 'android'" not in stext:
     print("Patched subprojects/sdl3-cmake-wrapper/meson.build")
 PYEOF
 
-CROSS_FILE="$WORK_DIR/android-arm64.ini"
-cat > "$CROSS_FILE" <<EOF
+ASSETS_DIR="$ROOT_DIR/android/app/src/main/assets"
+SDL_JAVA_DST="$ROOT_DIR/android/app/src/main/java/org/libsdl/app"
+mkdir -p "$ASSETS_DIR" "$SDL_JAVA_DST"
+
+FIRST_ABI=1
+for ABI in $ANDROID_ABIS; do
+    case "$ABI" in
+        arm64-v8a)
+            TRIPLE="aarch64-linux-android"
+            CPU_FAMILY="aarch64"
+            CPU="aarch64"
+            ;;
+        x86_64)
+            TRIPLE="x86_64-linux-android"
+            CPU_FAMILY="x86_64"
+            CPU="x86_64"
+            ;;
+        *)
+            echo "Unsupported ABI: $ABI" >&2
+            exit 1
+            ;;
+    esac
+
+    CC="$TOOLCHAIN/bin/${TRIPLE}${ANDROID_API}-clang"
+    CXX="$TOOLCHAIN/bin/${TRIPLE}${ANDROID_API}-clang++"
+    CROSS_FILE="$WORK_DIR/android-${ABI}.ini"
+    BUILD_DIR="$WORK_DIR/build-${ABI}"
+
+    cat > "$CROSS_FILE" <<EOF
 [binaries]
 c = '$CC'
 cpp = '$CXX'
@@ -112,59 +137,64 @@ cpp_link_args = ['-llog', '-landroid', '-lGLESv3', '-lEGL', '-lm']
 
 [cmake]
 CMAKE_TOOLCHAIN_FILE = '$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake'
-ANDROID_ABI = '${ANDROID_ABI}'
+ANDROID_ABI = '${ABI}'
 ANDROID_PLATFORM = 'android-${ANDROID_API}'
 ANDROID_STL = 'c++_shared'
 
 [host_machine]
 system = 'android'
-cpu_family = 'aarch64'
-cpu = 'aarch64'
+cpu_family = '${CPU_FAMILY}'
+cpu = '${CPU}'
 endian = 'little'
 EOF
 
-BUILD_DIR="$WORK_DIR/build-arm64"
-echo "==> Configuring Meson for Android arm64-v8a..."
-meson setup "$BUILD_DIR" "$TAISEI_DIR" \
-    --cross-file "$CROSS_FILE" \
-    --buildtype=release \
-    --wrap-mode=forcefallback \
-    -Dallocator=libc \
-    -Dr_default=gles30 \
-    -Dr_gles30=enabled \
-    -Dr_gl33=disabled \
-    -Dr_sdlgpu=disabled \
-    -Dr_null=disabled \
-    -Da_default=sdl \
-    -Da_sdl=enabled \
-    -Da_null=disabled \
-    -Dpackage_data=enabled \
-    -Dvalidate_glsl=disabled \
-    -Ddocs=disabled \
-    -Dinstall_freedesktop=disabled \
-    -Dgamemode=disabled \
-    -Dtests=disabled \
-    -Duse_libcrypto=disabled \
-    -Duse_libpng=disabled
+    if [ "$FIRST_ABI" -eq 1 ]; then
+        PKG_DATA_OPT="enabled"
+    else
+        PKG_DATA_OPT="disabled"
+    fi
 
-echo "==> Compiling Taisei (libmain.so, libSDL3.so, 00-taisei.zip)..."
-ninja -C "$BUILD_DIR"
+    echo "==> Configuring Meson for Android $ABI (package_data=$PKG_DATA_OPT)..."
+    meson setup "$BUILD_DIR" "$TAISEI_DIR" \
+        --cross-file "$CROSS_FILE" \
+        --buildtype=release \
+        --wrap-mode=forcefallback \
+        -Dallocator=libc \
+        -Dr_default=gles30 \
+        -Dr_gles30=enabled \
+        -Dr_gl33=disabled \
+        -Dr_sdlgpu=disabled \
+        -Dr_null=disabled \
+        -Da_default=sdl \
+        -Da_sdl=enabled \
+        -Da_null=disabled \
+        -Dpackage_data="$PKG_DATA_OPT" \
+        -Dvalidate_glsl=disabled \
+        -Ddocs=disabled \
+        -Dinstall_freedesktop=disabled \
+        -Dgamemode=disabled \
+        -Dtests=disabled \
+        -Duse_libcrypto=disabled \
+        -Duse_libpng=disabled
 
-echo "==> Copying native libraries, SDL3 Java sources, and game assets into Android project..."
-JNILIBS_DIR="$ROOT_DIR/android/app/src/main/jniLibs/$ANDROID_ABI"
-ASSETS_DIR="$ROOT_DIR/android/app/src/main/assets"
-SDL_JAVA_DST="$ROOT_DIR/android/app/src/main/java/org/libsdl/app"
+    echo "==> Compiling Taisei for $ABI..."
+    ninja -C "$BUILD_DIR"
 
-mkdir -p "$JNILIBS_DIR" "$ASSETS_DIR" "$SDL_JAVA_DST"
+    JNILIBS_DIR="$ROOT_DIR/android/app/src/main/jniLibs/$ABI"
+    mkdir -p "$JNILIBS_DIR"
 
-find "$BUILD_DIR" -name "libmain.so" -exec cp -v {} "$JNILIBS_DIR/libmain.so" \;
-find "$BUILD_DIR" -name "libSDL3.so" -exec cp -v {} "$JNILIBS_DIR/libSDL3.so" \;
-cp -v "$TOOLCHAIN/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$JNILIBS_DIR/libc++_shared.so"
+    find "$BUILD_DIR" -name "libmain.so" -exec cp -v {} "$JNILIBS_DIR/libmain.so" \;
+    find "$BUILD_DIR" -name "libSDL3.so" -exec cp -v {} "$JNILIBS_DIR/libSDL3.so" \;
+    cp -v "$TOOLCHAIN/sysroot/usr/lib/${TRIPLE}/libc++_shared.so" "$JNILIBS_DIR/libc++_shared.so"
 
-find "$BUILD_DIR" -name "00-taisei.zip" -exec cp -v {} "$ASSETS_DIR/00-taisei.zip" \;
+    if [ "$FIRST_ABI" -eq 1 ]; then
+        find "$BUILD_DIR" -name "00-taisei.zip" -exec cp -v {} "$ASSETS_DIR/00-taisei.zip" \;
+        FIRST_ABI=0
+    fi
+done
 
 SDL_JAVA_SRC="$TAISEI_DIR/subprojects/sdl3/android-project/app/src/main/java/org/libsdl/app"
 cp -v "$SDL_JAVA_SRC"/*.java "$SDL_JAVA_DST/"
 
 echo "==> Native build & asset staging complete!"
-ls -lh "$JNILIBS_DIR" "$ASSETS_DIR"
+ls -lh "$ROOT_DIR/android/app/src/main/jniLibs/"* "$ASSETS_DIR"
