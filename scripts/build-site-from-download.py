@@ -25,7 +25,7 @@ for path in (SOURCE_ROOT, WEB_ASSETS):
     path.mkdir(parents=True, exist_ok=True)
 
 subprocess.run(
-    ["curl", "--fail", "--location", "--retry", "3", "--retry-delay", "2", "--show-error", SOURCE_URL, "--output", str(DOWNLOAD)],
+    ["curl", "--fail", "--location", "--retry", "3", "--retry-delay", "2", "--show-error", "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36", SOURCE_URL, "--output", str(DOWNLOAD)],
     check=True,
 )
 
@@ -179,8 +179,17 @@ for current, dirs, files in os.walk(web_root):
             continue
         shutil.copy2(pathlib.Path(current) / filename, destination / filename)
 
-if next_static_root and next_static_root.is_dir():
+if next_static_root.is_dir():
     shutil.copytree(next_static_root, WEB_ASSETS / "_next/static", dirs_exist_ok=True)
+for candidate in (project_root / "out/_next/static", project_root / "dist/_next/static", project_root / "build/_next/static", web_root / "_next/static"):
+    if candidate.is_dir():
+        shutil.copytree(candidate, WEB_ASSETS / "_next/static", dirs_exist_ok=True)
+
+runtime_root = WEB_ASSETS / "_next/static"
+runtime_files = sorted(path.relative_to(WEB_ASSETS).as_posix() for path in runtime_root.rglob("*.js")) if runtime_root.is_dir() else []
+print("::notice title=Packaged Next runtime chunks::" + urllib.parse.quote(", ".join(runtime_files[:35]) or "none", safe=""), flush=True)
+if not runtime_files:
+    raise SystemExit("The Next.js export has no bundled JavaScript runtime chunks; refusing to create a blank-screen APK")
 
 # Next's public/ files are copied into `out/` by static export, but not into
 # `.next/server/app`; stage them explicitly for both output layouts.
