@@ -36,7 +36,11 @@ if "offline-api.js" not in layout_text:
         raise SystemExit("Could not insert offline scripts into the downloaded app layout")
 layout.write_text(layout_text)
 
-# Remove server API routes: their modules initialize PostgreSQL and are not used in the APK.
+# Remove server API routes and dynamic PWA manifest handlers; neither is needed
+# in the native WebView, and Next static export rejects request-time route handlers.
+manifest_route = app / "manifest.ts"
+if manifest_route.exists():
+    manifest_route.unlink()
 api_dir = app / "api"
 if api_dir.exists():
     for route in list(api_dir.rglob("route.ts")) + list(api_dir.rglob("route.tsx")):
