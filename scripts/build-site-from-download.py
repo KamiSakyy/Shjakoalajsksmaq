@@ -87,15 +87,16 @@ for current, dirs, files in os.walk(project_root):
             all_sources.append((rel, path))
 lib_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/lib").glob("*") if path.is_file())
 app_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/app").rglob("*") if path.is_file() and ".next" not in path.parts)[:100]
-print("::notice title=Application source layout::" + urllib.parse.quote(", ".join(lib_files + app_files), safe=""), flush=True)
-print("::notice title=Downloaded app project::" + urllib.parse.quote(str(project_root), safe=""), flush=True)
+component_files = sorted(path.relative_to(project_root).as_posix() for path in (project_root / "src/components").rglob("*") if path.is_file())[:120]
+print("::notice title=Application source layout::" + urllib.parse.quote(", ".join(lib_files + app_files + component_files), safe=""), flush=True)
 print("::notice title=API and database files::" + urllib.parse.quote(", ".join(rel for rel, _ in all_sources), safe=""), flush=True)
-priority_files = ["src/db/schema.ts", "src/lib/books.ts", "src/lib/book-input.ts", "src/lib/client.ts", "src/app/page.tsx", "src/app/layout.tsx"]
+priority_files = ["src/db/schema.ts", "src/lib/types.ts", "src/app/project/[id]/page.tsx", "src/components/library.tsx", "src/lib/client.ts", "src/lib/books.ts"]
 ordered_sources = sorted(all_sources, key=lambda item: (priority_files.index(item[0]) if item[0] in priority_files else len(priority_files), item[0]))
-for rel, path in ordered_sources[:7]:
+for rel, path in ordered_sources[:6]:
     if path.suffix in {".ts", ".tsx", ".js", ".json", ".sql"}:
         content = path.read_text(encoding="utf-8", errors="replace")[:5000 if rel in priority_files else 1200]
         print(f"::notice title=Source {urllib.parse.quote(rel, safe='')}::{urllib.parse.quote(content, safe='')}", flush=True)
+excerpts = []
 for base in (project_root / "src/app", project_root / "src/components"):
     if not base.is_dir():
         continue
@@ -106,10 +107,11 @@ for base in (project_root / "src/app", project_root / "src/components"):
             if path.suffix not in {".ts", ".tsx", ".js", ".jsx"} or path.stat().st_size > 30000:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            if "/api/" in text:
-                excerpts = [line.strip() for line in text.splitlines() if "/api/" in line][:8]
-                rel = path.relative_to(project_root).as_posix()
-                print(f"::notice title=Frontend API calls {urllib.parse.quote(rel, safe='')}::{urllib.parse.quote(chr(10).join(excerpts), safe='')}", flush=True)
+            for line in text.splitlines():
+                if any(token in line for token in ("api<", "router.push", "href=", "/project/")):
+                    excerpts.append(f"{path.relative_to(project_root).as_posix()}: {line.strip()}")
+if excerpts:
+    print("::notice title=Frontend data and navigation calls::" + urllib.parse.quote("\n".join(excerpts[:40]), safe=""), flush=True)
 
 if selected and selected[3]:
     print(f"Frontend project: {project_root}", flush=True)
