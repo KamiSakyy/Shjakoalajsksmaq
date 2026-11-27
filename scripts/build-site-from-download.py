@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import urllib.parse
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -74,6 +75,24 @@ for current, dirs, files in os.walk(SOURCE_ROOT):
 
 project_root = sorted(packages, key=lambda row: (row[0], row[1], str(row[2])))[0][2] if packages else SOURCE_ROOT
 selected = next((row for row in packages if row[2] == project_root), None)
+
+# Leave concise, non-secret source diagnostics in the Actions check annotations for build troubleshooting.
+details = [f"Project root: {project_root}"]
+if (project_root / "package.json").is_file():
+    package = json.loads((project_root / "package.json").read_text(encoding="utf-8"))
+    details.append("package.json: " + json.dumps({key: package.get(key) for key in ("name", "scripts", "dependencies", "devDependencies") if key in package}, ensure_ascii=False))
+for current, dirs, files in os.walk(project_root):
+    dirs[:] = [name for name in dirs if name not in {"node_modules", ".git", ".next", ".next"}]
+    relative = pathlib.Path(current).relative_to(project_root)
+    for filename in files:
+        path = pathlib.Path(current) / filename
+        rel = path.relative_to(project_root).as_posix()
+        if len(details) < 100 and (relative == pathlib.Path(".") or filename in {"next.config.js", "next.config.mjs", "next.config.ts", "schema.prisma"} or "api/books" in rel):
+            if path.suffix in {".js", ".mjs", ".ts", ".tsx", ".json", ".prisma", ".md"} and path.stat().st_size < 20000 and (filename == "package.json" or "api/books" in rel or "schema.prisma" in rel or filename.startswith("next.config") or filename.lower().startswith("readme")):
+                details.append(f"--- {rel} ---\n" + path.read_text(encoding="utf-8", errors="replace")[:3500])
+encoded_details = urllib.parse.quote("\n".join(details)[:30000], safe="")
+print(f"::notice title=Downloaded website summary::{encoded_details}", flush=True)
+
 if selected and selected[3]:
     print(f"Frontend project: {project_root}", flush=True)
     if (project_root / "package-lock.json").exists():
