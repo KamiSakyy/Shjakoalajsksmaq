@@ -151,6 +151,12 @@ for dirname in ("dist", "build", "out", "www", "public"):
         break
 if web_root is None and (project_root / "index.html").is_file():
     web_root = project_root
+next_static_root = None
+if web_root is None and (project_root / ".next/server/app/index.html").is_file():
+    # Some Next releases keep their fully prerendered app shell under .next even
+    # when static export was enabled. Its HTML can still run from bundled files.
+    web_root = project_root / ".next/server/app"
+    next_static_root = project_root / ".next/static"
 if web_root is None:
     indexes = []
     for current, dirs, files in os.walk(SOURCE_ROOT):
@@ -173,6 +179,9 @@ for current, dirs, files in os.walk(web_root):
         if filename.startswith(".env") or filename == "package.json" or filename.endswith(".map"):
             continue
         shutil.copy2(pathlib.Path(current) / filename, destination / filename)
+
+if next_static_root and next_static_root.is_dir():
+    shutil.copytree(next_static_root, WEB_ASSETS / "_next/static", dirs_exist_ok=True)
 
 if not (WEB_ASSETS / "index.html").is_file():
     raise SystemExit("Selected website output did not contain index.html")
