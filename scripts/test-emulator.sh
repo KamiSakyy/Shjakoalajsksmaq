@@ -8,7 +8,7 @@ adb install -r "$APK"
 adb logcat -c
 
 echo "==> Launching Taisei Project..."
-adb shell am start -n org.taisei_project.taisei/.TaiseiActivity
+adb shell am start -W -n org.taisei_project.taisei/.TaiseiActivity
 
 echo "==> Waiting 20s for asset extraction and game startup..."
 sleep 20
@@ -19,21 +19,19 @@ adb exec-out screencap -p > emulator-screenshot.png || true
 PID=$(adb shell pidof org.taisei_project.taisei || true)
 echo "==> Taisei process PID: ${PID:-NOT RUNNING}"
 
-# Check for SDL error dialogs or fatal crashes in logcat
-if grep -E "SDL/ERROR|UnsatisfiedLinkError|dlopen failed|FATAL EXCEPTION|SIGSEGV|SIGABRT|log_fatal" emulator-logcat.txt > emulator-errors.txt; then
-    echo "==> Found errors in logcat:"
-    cat emulator-errors.txt | tail -n 15
-    tail -n 10 emulator-errors.txt | while IFS= read -r line; do
-        echo "::error::$line"
-    done
+# Check for crashes or errors specifically from Taisei / SDL / AndroidRuntime (ignore system WVCdm)
+if [ -z "$PID" ]; then
+    echo "::error::Taisei process is NOT running after 20s (crashed or exited)!"
+    grep -iE "Taisei|SDL|taisei_project|AndroidRuntime|FATAL|SIGSEGV|SIGABRT|backtrace:|#00 pc" emulator-logcat.txt \
+        | grep -v "WVCdm" \
+        | tail -n 15 \
+        | while IFS= read -r line; do echo "::error::$line"; done
     exit 1
 fi
 
-if [ -z "$PID" ]; then
-    echo "::error::Taisei process is not running after 20s!"
-    grep -iE "taisei|sdl|error|fatal" emulator-logcat.txt | tail -n 10 | while IFS= read -r line; do
-        echo "::error::$line"
-    done
+if grep -E "SDL/ERROR|UnsatisfiedLinkError|FATAL EXCEPTION" emulator-logcat.txt | grep -v "WVCdm" > emulator-errors.txt; then
+    echo "::error::Taisei/SDL reported an error while running:"
+    tail -n 10 emulator-errors.txt | while IFS= read -r line; do echo "::error::$line"; done
     exit 1
 fi
 

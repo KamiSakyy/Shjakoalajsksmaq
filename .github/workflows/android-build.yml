@@ -114,3 +114,24 @@ jobs:
             emulator-screenshot.png
             emulator-logcat.txt
           retention-days: 14
+
+  publish-release:
+    needs: [build-release-apk, test-on-emulator]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Signed Release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: taisei-android-release-apk
+
+      - name: Publish Direct APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="taisei-android-v1.4.6"
+          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release create "$TAG" taisei-v1.4.6-android-release.apk \
+            --title "Taisei Project v1.4.6 Android (Signed Release)" \
+            --notes "Signed Release APK for Android 8.0+ (arm64-v8a + x86_64), verified on Android 14 Emulator."
