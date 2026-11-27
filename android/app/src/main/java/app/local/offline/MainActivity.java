@@ -1,6 +1,7 @@
 package app.local.offline;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -13,6 +14,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.ValueCallback;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -23,7 +25,9 @@ import java.util.Locale;
 /** Full-screen, local-only WebView for the site bundled into this APK. */
 public final class MainActivity extends Activity {
     private static final String APP_HOST = "appassets.androidplatform.net";
+    private static final int FILE_CHOOSER_REQUEST = 4107;
     private WebView webView;
+    private ValueCallback<Uri[]> pendingFileChooser;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -36,7 +40,24 @@ public final class MainActivity extends Activity {
         webView = new WebView(this);
         webView.setBackgroundColor(Color.WHITE);
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                             FileChooserParams params) {
+                if (pendingFileChooser != null) pendingFileChooser.onReceiveValue(null);
+                pendingFileChooser = callback;
+                try {
+                    Intent picker = params.createIntent();
+                    picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivityForResult(picker, FILE_CHOOSER_REQUEST);
+                    return true;
+                } catch (RuntimeException exception) {
+                    pendingFileChooser = null;
+                    callback.onReceiveValue(null);
+                    return true;
+                }
+            }
+        });
         webView.setWebViewClient(new LocalAssetsClient());
 
         WebSettings settings = webView.getSettings();
@@ -44,7 +65,9 @@ public final class MainActivity extends Activity {
         settings.setDomStorageEnabled(true); // localStorage survives activity and app restarts
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
+        // Required for WebView's native <input type=file> chooser to read the
+        // content:// URI returned by Android's system document picker.
+        settings.setAllowContentAccess(true);
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
@@ -76,6 +99,15 @@ public final class MainActivity extends Activity {
     }
 
     @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != FILE_CHOOSER_REQUEST) return;
+        ValueCallback<Uri[]> callback = pendingFileChooser;
+        pendingFileChooser = null;
+        if (callback != null) callback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+    }
+
+    @Override
     protected void onPause() {
         if (webView != null) webView.onPause();
         super.onPause();
@@ -90,6 +122,10 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (pendingFileChooser != null) {
+            pendingFileChooser.onReceiveValue(null);
+            pendingFileChooser = null;
+        }
         if (webView != null) {
             webView.stopLoading();
             webView.setWebChromeClient(null);
