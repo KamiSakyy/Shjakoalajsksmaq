@@ -131,7 +131,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="taisei-android-v1.4.6"
-          gh release delete "$TAG" --yes --cleanup-tag || true
+          gh release delete "$TAG" --repo "${{ github.repository }}" --yes --cleanup-tag || true
           gh release create "$TAG" taisei-v1.4.6-android-release.apk \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
             --title "Taisei Project v1.4.6 Android (Signed Release)" \
             --notes "Signed Release APK for Android 8.0+ (arm64-v8a + x86_64), verified on Android 14 Emulator."
