@@ -44,7 +44,7 @@ jobs:
           set -o pipefail
           chmod +x scripts/build-android.sh
           if ! ./scripts/build-android.sh 2>&1 | tee build.log; then
-            tail -n 30 build.log | while IFS= read -r line; do echo "::error::$line"; done
+            tail -n 8 build.log | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
 
