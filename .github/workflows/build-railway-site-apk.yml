@@ -69,7 +69,7 @@ jobs:
           APK=android/app/build/outputs/apk/release/app-release.apk
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
           staged_count="$(find android/app/src/main/assets/www -type f | wc -l)"
-          staged_next="$(find android/app/src/main/assets/www/_next -type f 2>/dev/null | head -n 20 | sed 's#^android/app/src/main/assets/www/##' | paste -sd ',' - || true)"
+          staged_next="$(find android/app/src/main/assets/www/next-assets -type f 2>/dev/null | head -n 20 | sed 's#^android/app/src/main/assets/www/##' | paste -sd ',' - || true)"
           echo "::notice title=APK website assets::staged_files=$staged_count; staged_next=${staged_next:-none}"
           embedded="$(grep '^assets/www/' "$RUNNER_TEMP/apk-files.txt" | head -n 40 | paste -sd ',' - || true)"
           echo "::notice title=APK embedded website assets::$embedded"
@@ -87,14 +87,14 @@ jobs:
             { echo 'Missing generated local editor route'; grep '^assets/www/project/' "$RUNNER_TEMP/apk-files.txt" || true; } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          if ! grep -Eq '^assets/www/_next/static/.+\.js$' "$RUNNER_TEMP/apk-files.txt"; then
-            next_files="$(grep '^assets/www/_next/' "$RUNNER_TEMP/apk-files.txt" | head -n 40 | paste -sd ',' - || true)"
-            echo "::error title=Offline APK payload::Next.js JavaScript chunks are missing. _next entries: ${next_files:-none}"
-            { echo 'Missing Next.js JavaScript chunks'; echo "_next entries: ${next_files:-none}"; } >> "$GITHUB_STEP_SUMMARY"
+          if ! grep -Eq '^assets/www/next-assets/static/.+\.js$' "$RUNNER_TEMP/apk-files.txt"; then
+            next_files="$(grep '^assets/www/next-assets/' "$RUNNER_TEMP/apk-files.txt" | head -n 40 | paste -sd ',' - || true)"
+            echo "::error title=Offline APK payload::Next.js JavaScript chunks are missing. next-assets entries: ${next_files:-none}"
+            { echo 'Missing Next.js JavaScript chunks'; echo "next-assets entries: ${next_files:-none}"; } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
           echo 'Offline web bundle verified: index, local API, JSZip, editor route, and Next.js chunks.'
-          { echo '### Verified offline APK payload'; grep -E '^assets/www/(index.html|offline-api.js|offline-boot.js|jszip.min.js|project/local|_next/static/)' "$RUNNER_TEMP/apk-files.txt" | head -n 30; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### Verified offline APK payload'; grep -E '^assets/www/(index.html|offline-api.js|offline-boot.js|jszip.min.js|project/local|next-assets/static/)' "$RUNNER_TEMP/apk-files.txt" | head -n 30; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: offline-android-release-apk

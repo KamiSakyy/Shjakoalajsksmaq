@@ -122,6 +122,9 @@ public final class MainActivity extends Activity {
             path = Uri.decode(path);
             if (path.contains("..") || path.startsWith("//")) return blockedResponse();
             while (path.startsWith("/")) path = path.substring(1);
+            // AAPT may omit underscore-prefixed asset directories. Keep Next.js's
+            // public URL stable, but store its runtime under a safe asset name.
+            if (path.startsWith("_next/")) path = "next-assets/" + path.substring("_next/".length());
 
             try {
                 InputStream stream = getAssets().open("www/" + path);

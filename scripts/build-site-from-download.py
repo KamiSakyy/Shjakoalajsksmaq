@@ -168,7 +168,7 @@ if web_root is None:
 if web_root is None:
     raise SystemExit("No index.html was found in the downloaded site or its build output")
 
-ignored_dirs = {"node_modules", ".git", ".next", ".env", ".env.local", ".env.production"}
+ignored_dirs = {"node_modules", ".git", ".next", "_next", ".env", ".env.local", ".env.production"}
 for current, dirs, files in os.walk(web_root):
     dirs[:] = [name for name in dirs if name not in ignored_dirs and not name.startswith(".env")]
     relative = pathlib.Path(current).relative_to(web_root)
@@ -180,12 +180,12 @@ for current, dirs, files in os.walk(web_root):
         shutil.copy2(pathlib.Path(current) / filename, destination / filename)
 
 if next_static_root.is_dir():
-    shutil.copytree(next_static_root, WEB_ASSETS / "_next/static", dirs_exist_ok=True)
+    shutil.copytree(next_static_root, WEB_ASSETS / "next-assets/static", dirs_exist_ok=True)
 for candidate in (project_root / "out/_next/static", project_root / "dist/_next/static", project_root / "build/_next/static", web_root / "_next/static"):
     if candidate.is_dir():
-        shutil.copytree(candidate, WEB_ASSETS / "_next/static", dirs_exist_ok=True)
+        shutil.copytree(candidate, WEB_ASSETS / "next-assets/static", dirs_exist_ok=True)
 
-runtime_root = WEB_ASSETS / "_next/static"
+runtime_root = WEB_ASSETS / "next-assets/static"
 runtime_files = sorted(path.relative_to(WEB_ASSETS).as_posix() for path in runtime_root.rglob("*.js")) if runtime_root.is_dir() else []
 print("::notice title=Packaged Next runtime chunks::" + urllib.parse.quote(", ".join(runtime_files[:35]) or "none", safe=""), flush=True)
 if not runtime_files:
