@@ -75,6 +75,7 @@ for current, dirs, files in os.walk(SOURCE_ROOT):
 project_root = sorted(packages, key=lambda row: (row[0], row[1], str(row[2])))[0][2] if packages else SOURCE_ROOT
 selected = next((row for row in packages if row[2] == project_root), None)
 if selected and selected[3]:
+    print(f"Frontend project: {project_root}", flush=True)
     if (project_root / "package-lock.json").exists():
         install = ["npm", "ci"]
     elif (project_root / "pnpm-lock.yaml").exists():
@@ -83,8 +84,12 @@ if selected and selected[3]:
         install = ["corepack", "yarn", "install", "--frozen-lockfile"]
     else:
         install = ["npm", "install"]
-    subprocess.run(install, cwd=project_root, check=True)
-    subprocess.run(["npm", "run", "build"], cwd=project_root, check=True)
+    for command in (install, ["npm", "run", "build"]):
+        result = subprocess.run(command, cwd=project_root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print(result.stdout, flush=True)
+        if result.returncode:
+            tail = "\n".join(result.stdout.splitlines()[-16:])
+            raise SystemExit(f"Command failed ({result.returncode}): {' '.join(command)}\n{tail}")
 
 web_root = None
 for dirname in ("dist", "build", "out", "www", "public"):
