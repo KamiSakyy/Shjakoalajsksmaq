@@ -4,7 +4,7 @@ This is a native Android application project built with **Android Gradle Plugin*
 
 ## Signed release APK through GitHub Actions
 
-The Actions workflow `Build signed Android release APK` builds and verifies `app-release.apk`, then uploads it as the `PacificOffline-release-signed` artifact (available for 30 days). No secrets are required: the workflow creates a random self-signed Android signing key for that run. This is suitable for sideloading/testing. Since the key is intentionally not saved, a later APK will have a different signature and cannot update this installation in place; uninstall the old app first. For long-term releases, replace the temporary key with a privately backed-up keystore.
+The Actions workflow `Build signed Android release APK` builds and verifies `app-release.apk`, uploads it as the `PacificOffline-release-signed` artifact, and publishes the APK as a GitHub prerelease asset. No secrets are required: the workflow creates a random self-signed Android signing key for that run. This is suitable for sideloading/testing. Since the key is intentionally not saved, a later APK will have a different signature and cannot update this installation in place; uninstall the old app first. For long-term releases, replace the temporary key with a privately backed-up keystore.
 
 The project includes a Gradle wrapper. A local unsigned build can be run with `./android/gradlew -p android assembleDebug` from the repository root; first build downloads Gradle and Android dependencies.
 

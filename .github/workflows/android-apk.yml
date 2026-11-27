@@ -13,6 +13,9 @@ on:
       - 'vite.config.ts'
       - '.github/workflows/android-apk.yml'
 
+permissions:
+  contents: write
+
 jobs:
   release-apk:
     runs-on: ubuntu-latest
@@ -52,3 +55,13 @@ jobs:
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Publish APK release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pacific-apk-${{ github.run_number }}
+          name: Pacific Offline APK build ${{ github.run_number }}
+          body: |
+            Signed release APK built by GitHub Actions.
+            The signing key is generated for this build; installing a later build requires uninstalling this APK first.
+          prerelease: true
+          files: android/app/build/outputs/apk/release/app-release.apk
