@@ -68,12 +68,23 @@ jobs:
           set -euo pipefail
           APK=android/app/build/outputs/apk/release/app-release.apk
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
-          grep -qx 'assets/www/index.html' "$RUNNER_TEMP/apk-files.txt"
-          grep -qx 'assets/www/offline-api.js' "$RUNNER_TEMP/apk-files.txt"
-          grep -qx 'assets/www/offline-boot.js' "$RUNNER_TEMP/apk-files.txt"
-          grep -qx 'assets/www/jszip.min.js' "$RUNNER_TEMP/apk-files.txt"
-          grep -Eq '^assets/www/project/local(\.html|/index\.html)$' "$RUNNER_TEMP/apk-files.txt"
-          grep -Eq '^assets/www/_next/static/.+\.js$' "$RUNNER_TEMP/apk-files.txt"
+          for required in index.html offline-api.js offline-boot.js jszip.min.js; do
+            if ! grep -qx "assets/www/$required" "$RUNNER_TEMP/apk-files.txt"; then
+              echo "Missing APK entry assets/www/$required"
+              grep '^assets/www/' "$RUNNER_TEMP/apk-files.txt" | head -n 50
+              exit 1
+            fi
+          done
+          if ! grep -Eq '^assets/www/project/local(\.html|/index\.html)$' "$RUNNER_TEMP/apk-files.txt"; then
+            echo "Missing generated local editor route; bundled project files:"
+            grep '^assets/www/project/' "$RUNNER_TEMP/apk-files.txt" || true
+            exit 1
+          fi
+          if ! grep -Eq '^assets/www/_next/static/.+\.js$' "$RUNNER_TEMP/apk-files.txt"; then
+            echo "Missing bundled Next.js JavaScript chunks; _next files:"
+            grep '^assets/www/_next/' "$RUNNER_TEMP/apk-files.txt" || true
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: offline-android-release-apk
