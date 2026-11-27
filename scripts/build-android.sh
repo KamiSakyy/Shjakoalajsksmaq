@@ -101,6 +101,7 @@ cpp = '$CXX'
 ar = '$AR'
 strip = '$STRIP'
 ranlib = '$RANLIB'
+cmake = 'cmake'
 pkgconfig = 'false'
 
 [built-in options]
