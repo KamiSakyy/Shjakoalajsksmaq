@@ -127,6 +127,16 @@ public final class MainActivity extends Activity {
                 InputStream stream = getAssets().open("www/" + path);
                 return new WebResourceResponse(mimeType(path), null, stream);
             } catch (IOException exception) {
+                // Next.js static export has only the generated /project/local route. The
+                // editor obtains the real project id from the retained WebView URL and
+                // reads that book from IndexedDB through offline-api.js.
+                if (path.startsWith("project/") && path.indexOf('/', "project/".length()) < 0
+                        && !path.equals("project/local.html")) {
+                    try {
+                        return new WebResourceResponse("text/html", "UTF-8",
+                                getAssets().open("www/project/local.html"));
+                    } catch (IOException ignored) { /* Report the standard missing asset below. */ }
+                }
                 return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", null,
                         new ByteArrayInputStream("Offline asset not found".getBytes(StandardCharsets.UTF_8)));
             }

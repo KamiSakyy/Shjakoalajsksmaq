@@ -115,6 +115,13 @@ if excerpts:
 
 if selected and selected[3]:
     print(f"Frontend project: {project_root}", flush=True)
+    is_next_app = (project_root / "src/app/layout.tsx").is_file() and (project_root / "next.config.ts").exists()
+    if is_next_app:
+        prepare = ["python3", str(ROOT / "android/prepare-offline-app.py"), str(project_root)]
+        result = subprocess.run(prepare, cwd=project_root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        print(result.stdout, flush=True)
+        if result.returncode:
+            raise SystemExit(f"Offline app preparation failed ({result.returncode}):\n{result.stdout[-4000:]}")
     if (project_root / "package-lock.json").exists():
         install = ["npm", "ci"]
     elif (project_root / "pnpm-lock.yaml").exists():
@@ -123,12 +130,18 @@ if selected and selected[3]:
         install = ["corepack", "yarn", "install", "--frozen-lockfile"]
     else:
         install = ["npm", "install"]
-    for command in (install, ["npm", "run", "build"]):
+    commands = [install]
+    if is_next_app:
+        commands.append(["npm", "install", "--no-save", "--package-lock=false", "jszip"])
+    commands.append(["npm", "run", "build"])
+    for command in commands:
         result = subprocess.run(command, cwd=project_root, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         print(result.stdout, flush=True)
         if result.returncode:
             tail = "\n".join(result.stdout.splitlines()[-16:])
             raise SystemExit(f"Command failed ({result.returncode}): {' '.join(command)}\n{tail}")
+        if is_next_app and "jszip" in command:
+            shutil.copy2(project_root / "node_modules/jszip/dist/jszip.min.js", project_root / "public/jszip.min.js")
 
 web_root = None
 for dirname in ("dist", "build", "out", "www", "public"):
