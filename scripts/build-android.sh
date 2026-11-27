@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/.build-taisei}"
 TAISEI_TAG="${TAISEI_TAG:-v1.4.6}"
-ANDROID_API="${ANDROID_API:-24}"
+ANDROID_API="${ANDROID_API:-26}"
 ANDROID_ABI="${ANDROID_ABI:-arm64-v8a}"
 
 if [ -z "${ANDROID_NDK_HOME:-}" ]; then

@@ -8,7 +8,7 @@ android {
 
     defaultConfig {
         applicationId "org.taisei_project.taisei"
-        minSdk 24
+        minSdk 26
         targetSdk 34
         versionCode 10406
         versionName "1.4.6-android"
