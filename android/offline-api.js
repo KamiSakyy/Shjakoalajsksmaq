@@ -58,6 +58,98 @@
   function cleanText(html) {
     return String(html || "").replace(/<\/(p|h[1-6]|li|blockquote|div|section)>/gi, "\n").replace(/<br\s*\/?\s*>/gi, "\n").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
   }
+  function xmlElements(root, localName) {
+    return Array.from(root.getElementsByTagNameNS("*", localName));
+  }
+  function xmlText(root, localName) {
+    return xmlElements(root, localName).map(node => node.textContent?.trim()).find(Boolean) || "";
+  }
+  function archivePath(baseDir, href) {
+    let decoded = String(href || "").split(/[?#]/, 1)[0];
+    try { decoded = decodeURIComponent(decoded); } catch (_) {}
+    const parts = decoded.startsWith("/") ? [] : baseDir.split("/").filter(Boolean);
+    for (const part of decoded.split("/")) {
+      if (!part || part === ".") continue;
+      if (part === "..") { if (!parts.length) return ""; parts.pop(); }
+      else parts.push(part);
+    }
+    return parts.join("/");
+  }
+  function imageMime(path) {
+    return ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", avif: "image/avif", bmp: "image/bmp" })[String(path).split(".").pop().toLowerCase()] || "application/octet-stream";
+  }
+  async function zipDataUri(zip, path) {
+    const entry = zip.file(path);
+    return entry ? `data:${imageMime(path)};base64,${await entry.async("base64")}` : "";
+  }
+  async function importEpub(file, titleOverride, authorOverride) {
+    const JSZip = window.__OfflineJSZip;
+    if (!JSZip) throw new Error("Модуль EPUB ещё загружается. Повторите импорт через секунду.");
+    const zip = await JSZip.loadAsync(await file.arrayBuffer());
+    const parser = new DOMParser();
+    const containerFile = zip.file("META-INF/container.xml");
+    if (!containerFile) throw new Error("Некорректный EPUB: отсутствует META-INF/container.xml");
+    const container = parser.parseFromString(await containerFile.async("text"), "application/xml");
+    const opfPath = archivePath("", xmlElements(container, "rootfile")[0]?.getAttribute("full-path"));
+    if (!opfPath || !zip.file(opfPath)) throw new Error("Не найден файл метаданных книги внутри EPUB");
+    const opf = parser.parseFromString(await zip.file(opfPath).async("text"), "application/xml");
+    if (xmlElements(opf, "parsererror").length) throw new Error("Не удалось прочитать метаданные EPUB");
+    const opfDir = opfPath.includes("/") ? opfPath.slice(0, opfPath.lastIndexOf("/")) : "";
+    const manifest = new Map();
+    for (const item of xmlElements(opf, "item")) {
+      const id = item.getAttribute("id"), href = item.getAttribute("href");
+      if (id && href) manifest.set(id, { href, path: archivePath(opfDir, href), media: item.getAttribute("media-type") || "", properties: item.getAttribute("properties") || "" });
+    }
+    const metadata = { ...DEFAULT_METADATA };
+    metadata.language = xmlText(opf, "language") || metadata.language;
+    metadata.description = xmlText(opf, "description");
+    metadata.publisher = xmlText(opf, "publisher");
+    metadata.identifier = xmlText(opf, "identifier");
+    metadata.subjects = xmlElements(opf, "subject").map(node => node.textContent?.trim()).filter(Boolean).join(", ") || metadata.subjects;
+    const title = String(titleOverride || xmlText(opf, "title") || file.name.replace(/\.epub$/i, "") || "Импортированная книга");
+    const author = String(authorOverride || xmlText(opf, "creator") || "");
+    let coverPath = Array.from(manifest.values()).find(item => item.properties.split(/\s+/).includes("cover-image"))?.path || "";
+    if (!coverPath) {
+      const coverId = xmlElements(opf, "meta").find(node => node.getAttribute("name") === "cover")?.getAttribute("content");
+      coverPath = coverId && manifest.has(coverId) ? manifest.get(coverId).path : "";
+    }
+    if (!coverPath) coverPath = Array.from(manifest.values()).find(item => /cover/i.test(item.href) && item.media.startsWith("image/"))?.path || "";
+    const cover = coverPath ? await zipDataUri(zip, coverPath) : "";
+    const chapters = [];
+    for (const ref of xmlElements(opf, "itemref")) {
+      const item = manifest.get(ref.getAttribute("idref"));
+      if (!item || item.properties.split(/\s+/).includes("nav") || !/xhtml|html/i.test(item.media)) continue;
+      const entry = zip.file(item.path);
+      if (!entry) continue;
+      const markup = await entry.async("text");
+      let doc = parser.parseFromString(markup, "application/xhtml+xml");
+      if (xmlElements(doc, "parsererror").length) doc = parser.parseFromString(markup, "text/html");
+      const body = xmlElements(doc, "body")[0] || doc.body;
+      if (!body) continue;
+      body.querySelectorAll("script, iframe, object, embed, form, base").forEach(node => node.remove());
+      for (const element of body.querySelectorAll("*")) {
+        for (const attr of Array.from(element.attributes)) {
+          if (/^on/i.test(attr.name) || ((attr.name === "href" || attr.name === "src" || attr.name.endsWith(":href")) && /^\s*javascript:/i.test(attr.value))) element.removeAttribute(attr.name);
+        }
+      }
+      for (const image of body.querySelectorAll("img[src], image[href], image[xlink\\:href]")) {
+        const attr = image.hasAttribute("src") ? "src" : (image.hasAttribute("href") ? "href" : "xlink:href");
+        const src = image.getAttribute(attr) || "";
+        if (/^https?:/i.test(src)) { image.removeAttribute(attr); continue; }
+        if (/^(data:|blob:)/i.test(src)) continue;
+        const dir = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : "";
+        const uri = await zipDataUri(zip, archivePath(dir, src));
+        if (uri) image.setAttribute(attr, uri); else image.removeAttribute(attr);
+      }
+      body.querySelectorAll("[srcset]").forEach(node => node.removeAttribute("srcset"));
+      const chapterTitle = xmlText(doc, "title") || doc.title?.trim() || body.querySelector("h1, h2, h3")?.textContent?.trim() || `Глава ${chapters.length + 1}`;
+      const serializer = new XMLSerializer();
+      const content = Array.from(body.childNodes).map(node => serializer.serializeToString(node)).join("");
+      if (cleanText(content)) chapters.push({ id: crypto.randomUUID(), title: chapterTitle, group: "Том 1", content });
+    }
+    if (!chapters.length) throw new Error("В EPUB не найдены главы с текстом");
+    return normalizeBook({ title, author, cover, status: "draft", metadata, chapters, lore: [] });
+  }
   function escapeHtml(text) {
     return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
@@ -124,7 +216,15 @@
       const form = await request.formData();
       const file = form.get("file") || form.get("project") || form.get("document");
       if (!(file instanceof File)) return json({ error: "Выберите файл для импорта" }, 400);
-      if (/\.epub$/i.test(file.name)) return json({ error: "Импорт EPUB требует подключения к серверу. Импортируйте TXT или Markdown-файл." }, 422);
+      if (/\.epub$/i.test(file.name) || file.type === "application/epub+zip") {
+        try {
+          const book = await importEpub(file, form.get("title"), form.get("author"));
+          await write("books", book);
+          return json(book, 201);
+        } catch (error) {
+          return json({ error: error instanceof Error ? error.message : "Не удалось прочитать EPUB" }, 422);
+        }
+      }
       const source = await file.text();
       const title = String(form.get("title") || file.name.replace(/\.(txt|md|markdown)$/i, "") || "Новая история");
       const lines = source.split(/\r?\n/);

@@ -38,6 +38,8 @@ jobs:
             { echo '### Website download/build failed'; tail -n 30 "$RUNNER_TEMP/site-build.log"; } >> "$GITHUB_STEP_SUMMARY"
             exit "$status"
           fi
+      - name: Check offline import and storage bridge syntax
+        run: node --check android/app/src/main/assets/www/offline-api.js
       - name: Generate one-run APK signing key
         shell: bash
         run: |
