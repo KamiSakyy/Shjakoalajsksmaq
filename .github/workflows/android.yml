@@ -38,7 +38,7 @@ jobs:
           echo "sdkmanager: ${SM:-not found}"
           if [ -n "$SM" ] && [ -x "$SM" ]; then
             yes | "$SM" --licenses > /dev/null 2>&1 || true
-            "$SM" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" || echo "WARN: sdkmanager failed; relying on preinstalled SDK"
+            "$SM" --install "platforms;android-37" "build-tools;37.0.0" "platform-tools" || echo "WARN: sdkmanager failed; relying on preinstalled SDK"
           else
             echo "WARN: sdkmanager not available; relying on preinstalled SDK"
           fi
@@ -59,7 +59,7 @@ jobs:
             echo "----- gradle output tail -----"
             tail -120 test.log
             echo "----- error annotations -----"
-            grep -m 24 -E "error:|error |FAILED|What went wrong|Caused by|Execution failed|Compilation failed|Exception" test.log | sed 's/%/%25/g; s/\r//g' | sed 's/^/::error::/' 
+            grep -m 32 -E "error:|error |FAILED|What went wrong|Caused by|Execution failed|Compilation failed|Exception|AAR|minCompileSdk|requires|Dependency" test.log | sed 's/%/%25/g; s/\r//g' | sed 's/^/::error::/' 
             exit $CODE
           fi
 
