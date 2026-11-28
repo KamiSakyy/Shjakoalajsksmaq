@@ -51,7 +51,17 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run unit tests
-        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+        run: |
+          set +e
+          ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace > test.log 2>&1
+          CODE=$?
+          if [ $CODE -ne 0 ]; then
+            echo "----- gradle output tail -----"
+            tail -120 test.log
+            echo "----- error annotations -----"
+            grep -m 24 -E "error:|error |FAILED|What went wrong|Caused by|Execution failed|Compilation failed|Exception" test.log | sed 's/%/%25/g; s/\r//g' | sed 's/^/::error::/' 
+            exit $CODE
+          fi
 
       - name: Upload test reports when tests fail
         if: failure()
