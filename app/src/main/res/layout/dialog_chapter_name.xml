@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.textfield.TextInputLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+    android:hint="@string/dialog_add_chapter_hint"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <com.google.android.material.textfield.TextInputEditText
+        android:id="@+id/chapter_name_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="textCapSentences"
+        android:imeOptions="actionDone"
+        android:singleLine="true" />
+</com.google.android.material.textfield.TextInputLayout>

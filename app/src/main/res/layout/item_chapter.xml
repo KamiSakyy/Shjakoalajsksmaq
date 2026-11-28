@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    app:cardCornerRadius="20dp"
+    app:cardBackgroundColor="@color/surface_container"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/outline_variant"
+    app:strokeWidth="1dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="6dp">
+
+        <TextView
+            android:id="@+id/chapter_index"
+            android:layout_width="40dp"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:text="1"
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/chapter_body"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp">
+
+            <TextView
+                android:id="@+id/chapter_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Chapter"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="2"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/chapter_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/move_up_button"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:minWidth="40dp"
+            android:padding="6dp"
+            android:contentDescription="@string/move_up_desc"
+            style="@style/Widget.Material3.Button.IconButton"
+            app:icon="@drawable/ic_arrow_up"
+            app:iconSize="20dp"
+            app:iconTint="@color/text_secondary" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/move_down_button"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:minWidth="40dp"
+            android:padding="6dp"
+            android:contentDescription="@string/move_down_desc"
+            style="@style/Widget.Material3.Button.IconButton"
+            app:icon="@drawable/ic_arrow_down"
+            app:iconSize="20dp"
+            app:iconTint="@color/text_secondary" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/delete_button"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:minWidth="40dp"
+            android:padding="6dp"
+            android:contentDescription="@string/delete_chapter_desc"
+            style="@style/Widget.Material3.Button.IconButton"
+            app:icon="@drawable/ic_delete"
+            app:iconSize="20dp"
+            app:iconTint="@color/error" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

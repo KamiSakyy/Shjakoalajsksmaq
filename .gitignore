@@ -1,0 +1,25 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+local.properties
+*.apk
+!handoff/*.apk
+*.aab
+*.ap_
+*.dex
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+test.log
+err.txt
+dist/

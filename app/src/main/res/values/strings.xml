@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ranobe EPUB</string>
+
+    <!-- Library (main) -->
+    <string name="empty_title">Библиотека пуста</string>
+    <string name="empty_subtitle">Создайте первую книгу: обложка, главы, вертикальная запись и экспорт в EPUB 3 — полностью локально и без интернета.</string>
+    <string name="empty_create">Создать проект</string>
+    <string name="more_options_desc">Ещё действия</string>
+    <string name="fab_create_desc">Новый проект</string>
+    <string name="action_import_backup">Импортировать копию (.json)</string>
+    <string name="action_settings">Настройки</string>
+    <string name="action_about">О приложении</string>
+    <string name="menu_export_epub">Экспорт EPUB…</string>
+    <string name="menu_duplicate">Создать копию</string>
+    <string name="menu_delete_project">Удалить проект</string>
+    <string name="project_meta">Глав: %1$d  ·  %2$s зн.</string>
+    <string name="untitled">Без названия</string>
+    <string name="untitled_author">Автор не указан</string>
+
+    <!-- Project screen -->
+    <string name="project_title">Проект</string>
+    <string name="section_metadata">Метаданные</string>
+    <string name="section_chapters">Главы</string>
+    <string name="section_export">Публикация</string>
+    <string name="label_title">Название произведения *</string>
+    <string name="label_author">Автор *</string>
+    <string name="label_language">Язык</string>
+    <string name="label_publisher">Издательство</string>
+    <string name="label_series">Серия</string>
+    <string name="label_series_helper">Попадёт в belongs-to-collection (EPUB 3)</string>
+    <string name="label_subjects">Предметные рубрики</string>
+    <string name="label_subjects_helper">Через запятую: фэнтези, приключения</string>
+    <string name="label_identifier">Уникальный идентификатор (URN)</string>
+    <string name="label_identifier_helper">Пусто — будет сгенерирован urn:uuid автоматически</string>
+    <string name="label_description">Аннотация</string>
+    <string name="vertical_title">Вертикальная запись</string>
+    <string name="vertical_subtitle">縦書き — колонки справа налево, как в настоящих ранобэ (page-progression-direction="rtl")</string>
+    <string name="cover_choose">Обложка…</string>
+    <string name="cover_remove">Убрать</string>
+    <string name="cover_desc">Обложка книги</string>
+    <string name="add_chapter">Глава</string>
+    <string name="import_txt">Импорт .txt</string>
+    <string name="chapters_empty">Глав пока нет.\nДобавьте первую — или импортируйте .txt / .md в формате Aozora Bunko.</string>
+    <string name="export_epub">Экспорт EPUB 3</string>
+    <string name="backup_save">Сохранить копию (.json)</string>
+    <string name="delete_project">Удалить проект</string>
+    <string name="action_save">Сохранить</string>
+    <string name="save_desc">Сохранить</string>
+    <string name="chapter_count_badge">%1$d</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_delete_project_title">Удалить проект?</string>
+    <string name="dialog_delete_project_msg">«%1$s» и все его главы будут удалены безвозвратно.</string>
+    <string name="delete_action">Удалить</string>
+    <string name="cancel_action">Отмена</string>
+    <string name="dialog_add_chapter_title">Новая глава</string>
+    <string name="dialog_add_chapter_hint">Название (пусто — «Глава N»)</string>
+    <string name="create_action">Создать</string>
+    <string name="dialog_delete_chapter_title">Удалить главу?</string>
+    <string name="dialog_delete_chapter_msg">«%1$s» будет удалена безвозвратно.</string>
+
+    <!-- Results / toasts -->
+    <string name="toast_saved">Сохранено</string>
+    <string name="toast_epub_exported">EPUB 3 сохранён</string>
+    <string name="import_txt_done">Импортировано глав: %1$d</string>
+    <string name="epub_open">Открыть</string>
+    <string name="epub_success_title">EPUB 3 готов</string>
+    <string name="epub_success_msg">«%1$s»\n\nГлав: %2$d  ·  Размер: %3$s</string>
+    <string name="backup_saved">Копия проекта сохранена</string>
+    <string name="backup_imported">Проект импортирован из копии</string>
+    <string name="error_generic">Ошибка: %1$s</string>
+    <string name="no_app_to_open">Нет приложения для открытия .epub</string>
+    <string name="perm_denied_settings">Разрешение отклонено навсегда. Открыть настройки?</string>
+    <string name="open_settings">Настройки</string>
+
+    <!-- Chapter editor -->
+    <string name="chapter_editor_title">Глава</string>
+    <string name="chapter_title_hint">Название главы</string>
+    <string name="content_hint">Текст главы…</string>
+    <string name="aozora_hint">Aozora-разметка: 漢字《かんじ》 — руби (фуригана), ｜漢字《かんじ》 — явная база, ［＃…］ — служебные метки, удаляются при экспорте.</string>
+    <string name="preview_title">Предпросмотр</string>
+    <string name="preview_desc">Предпросмотр</string>
+    <string name="untitled_chapter">Без названия</string>
+    <string name="chapter_fallback_title">Глава %1$d</string>
+    <string name="char_count">%1$s зн.</string>
+    <string name="move_up_desc">Переместить вверх</string>
+    <string name="move_down_desc">Переместить вниз</string>
+    <string name="edit_chapter_desc">Редактировать главу</string>
+    <string name="delete_chapter_desc">Удалить главу</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Настройки</string>
+    <string name="section_defaults">Новые проекты</string>
+    <string name="default_language">Язык по умолчанию</string>
+    <string name="default_vertical">Вертикальная запись по умолчанию</string>
+    <string name="section_storage">Хранение и конфиденциальность</string>
+    <string name="storage_note">Всё хранится локально во внутренней памяти устройства. Обмен файлами — через системный диалог «Открыть / Сохранить» (проводник, Google Drive, почта и т.д.).</string>
+    <string name="offline_note">Сеть не используется: у приложения нет разрешения INTERNET. Никакой телеметрии, аккаунтов и рекламы.</string>
+    <string name="about_open">О приложении</string>
+
+    <!-- About -->
+    <string name="about_title">О приложении</string>
+    <string name="about_version">Версия %1$s (%2$d)</string>
+    <string name="crash_log_title">Обнаружен предыдущий вылет</string>
+    <string name="crash_log_copy">Копировать</string>
+    <string name="crash_log_clear">Очистить</string>
+    <string name="crash_log_dismiss">Закрыть</string>
+    <string name="crash_log_copied">Отчёт скопирован в буфер обмена</string>
+    <string name="crash_log_cleared">Отчёт об ошибке очищен</string>
+    <string name="about_tagline">Полностью локальный редактор EPUB 3 для японских ранобэ.</string>
+    <string name="about_features_title">Возможности</string>
+    <string name="about_f1">EPUB 3.0.1: OPF 3.0, nav (epub:type=toc), NCX для совместимости</string>
+    <string name="about_f2">Вертикальная запись: writing-mode vertical-rl, page-progression-direction rtl</string>
+    <string name="about_f3">Руби (фуригана) по правилам Aozora Bunko: 漢字《かんじ》, ｜база《かんじ》</string>
+    <string name="about_f4">Импорт .txt / .md с автоопределением UTF-8, Shift_JIS и CP1251</string>
+    <string name="about_f5">Обложка из галереи: сжатие до 1600 px и встраивание в EPUB</string>
+    <string name="about_f6">Резервная копия проекта в .json — обложка встраивается в base64</string>
+    <string name="about_f7">Без интернета, без аккаунта, без рекламы, без телеметрии</string>
+    <string name="about_f8">Проверяется unit-тестами и собирается в GitHub Actions</string>
+    <string name="about_components">Компоненты: AndroidX, Material Components for Android (Apache-2.0).</string>
+    <string name="about_close">Закрыть</string>
+
+    <!-- Language list -->
+    <string-array name="language_codes">
+        <item>ja</item><item>ja-JP</item><item>en</item><item>ru</item><item>de</item><item>fr</item>
+        <item>es</item><item>it</item><item>pt</item><item>zh</item><item>zh-Hant</item><item>ko</item><item>uk</item>
+    </string-array>
+    <string-array name="language_labels">
+        <item>日本語 — японский (ja)</item>
+        <item>日本語 — японский, Япония (ja-JP)</item>
+        <item>English — английский (en)</item>
+        <item>Русский (ru)</item>
+        <item>Deutsch — немецкий (de)</item>
+        <item>Français — французский (fr)</item>
+        <item>Español — испанский (es)</item>
+        <item>Italiano — итальянский (it)</item>
+        <item>Português — португальский (pt)</item>
+        <item>中文 (упрощённый) — китайский (zh)</item>
+        <item>中文 (традиционный) — китайский (zh-Hant)</item>
+        <item>한국어 — корейский (ko)</item>
+        <item>Українська — украинский (uk)</item>
+    </string-array>
+</resources>

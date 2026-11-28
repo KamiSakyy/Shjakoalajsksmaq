@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Core palette: graphite + muted brass. Solid colours only — no gradients, no neon. -->
+    <color name="background">#0F1115</color>
+    <color name="surface">#161A20</color>
+    <color name="surface_variant">#1D232C</color>
+    <color name="surface_container">#1A1F27</color>
+    <color name="surface_container_high">#222933</color>
+    <color name="outline">#2C3541</color>
+    <color name="outline_variant">#212933</color>
+
+    <color name="primary">#D3B26A</color>
+    <color name="on_primary">#241B06</color>
+    <color name="primary_container">#3A2F14</color>
+    <color name="on_primary_container">#F0DFAE</color>
+
+    <color name="secondary">#B7A77E</color>
+    <color name="on_secondary">#221C0C</color>
+
+    <color name="text_primary">#E9E7E1</color>
+    <color name="text_secondary">#A6ACB8</color>
+
+    <color name="error">#D98E8E</color>
+    <color name="on_error">#2B1111</color>
+
+    <color name="launcher_background">#14181F</color>
+    <color name="white">#FFFFFF</color>
+    <color name="transparent">#00000000</color>
+</resources>
