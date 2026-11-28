@@ -53,6 +53,17 @@ jobs:
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
+      - name: Upload test reports when tests fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/testDebugUnitTest/**
+            app/build/test-results/testDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Assemble debug APK (installable, auto debug-key)
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 

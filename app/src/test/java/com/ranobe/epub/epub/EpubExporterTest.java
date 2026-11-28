@@ -38,7 +38,7 @@ public class EpubExporterTest {
     private static Map<String, byte[]> readZip(File file) throws Exception {
         Map<String, byte[]> entries = new HashMap<>();
         try (ZipFile zip = new ZipFile(file)) {
-            var names = zip.entries();
+            java.util.Enumeration<? extends ZipEntry> names = zip.entries();
             while (names.hasMoreElements()) {
                 ZipEntry entry = names.nextElement();
                 if (!entry.isDirectory()) {
@@ -62,7 +62,7 @@ public class EpubExporterTest {
 
         File tmp = Files.createTempFile("test", ".epub").toFile();
         tmp.deleteOnExit();
-        try (var out = Files.newOutputStream(tmp.toPath())) {
+        try (java.io.OutputStream out = Files.newOutputStream(tmp.toPath())) {
             out.write(epub);
         }
 
@@ -113,7 +113,7 @@ public class EpubExporterTest {
         byte[] epub = EpubExporter.export(p, null, null);
         File tmp = Files.createTempFile("test", ".epub").toFile();
         tmp.deleteOnExit();
-        try (var out = Files.newOutputStream(tmp.toPath())) {
+        try (java.io.OutputStream out = Files.newOutputStream(tmp.toPath())) {
             out.write(epub);
         }
         Map<String, byte[]> entries = readZip(tmp);
@@ -179,7 +179,7 @@ public class EpubExporterTest {
         byte[] epub = EpubExporter.export(p, null, null);
         File tmp = Files.createTempFile("test", ".epub").toFile();
         tmp.deleteOnExit();
-        try (var out = Files.newOutputStream(tmp.toPath())) {
+        try (java.io.OutputStream out = Files.newOutputStream(tmp.toPath())) {
             out.write(epub);
         }
         Map<String, byte[]> entries = readZip(tmp);

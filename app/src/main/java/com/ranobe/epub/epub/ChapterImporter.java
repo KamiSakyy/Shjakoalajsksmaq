@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  */
 public final class ChapterImporter {
 
-    private static final Pattern JAPANESE_NUMBER = "[0-9０-９一二三四五六七八九十百千零〇]";
+    private static final String JAPANESE_NUMBER = "[0-9０-９一二三四五六七八九十百千零〇]";
 
     private static final Pattern HEADER = Pattern.compile(
             "^\\s{0,3}(?:"
