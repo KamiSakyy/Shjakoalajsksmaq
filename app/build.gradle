@@ -35,8 +35,10 @@ android {
             debuggable true
         }
         release {
-            // Intentionally NO signingConfig: the release artifact is produced UNSIGNED,
-            // exactly as requested ("без подписи"). Side-load the debug APK or sign manually.
+            // Release-артефакт подписан СТАНДАРТНЫМ публичным debug-ключом Android,
+            // иначе APK физически не устанавливается на устройство. Это не production-подпись:
+            // для Google Play нужен собственный keystore.
+            signingConfig signingConfigs.debug
             // R8/ProGuard: минификация кода + удаление неиспользуемых ресурсов.
             minifyEnabled true
             shrinkResources true

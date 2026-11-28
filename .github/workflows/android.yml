@@ -77,7 +77,7 @@ jobs:
       - name: Assemble debug APK (installable, auto debug-key, arm64-v8a only)
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Assemble release APK (arm64-v8a only, ProGuard-minified, UNSIGNED — без подписи)
+      - name: Assemble release APK (arm64-v8a only, ProGuard-minified, подписан стандартным debug-ключом)
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Collect APKs into dist/
@@ -85,7 +85,7 @@ jobs:
           set -e
           mkdir -p dist
           cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk "dist/RanobeEPUB-1.0.0-debug-arm64.apk"
-          cp app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk "dist/RanobeEPUB-1.0.0-release-arm64-unsigned.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/RanobeEPUB-1.0.0-release-arm64.apk"
           ls -la dist/
 
       - name: Publish clean release APK into handoff/ (this branch only)
@@ -93,15 +93,15 @@ jobs:
         run: |
           set -e
           mkdir -p handoff
-          cp app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk              "handoff/RanobeEPUB-1.0.0-release-arm64-unsigned.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk              "handoff/RanobeEPUB-1.0.0-release-arm64.apk"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add handoff/RanobeEPUB-1.0.0-release-arm64-unsigned.apk
+          git add handoff/RanobeEPUB-1.0.0-release-arm64.apk
           if git diff --cached --quiet; then
             echo "handoff APK unchanged — nothing to commit"
             exit 0
           fi
-          git commit -m "CI handoff: ARM64 release APK, ProGuard-minified [skip ci]"
+          git commit -m "CI handoff: ARM64 release APK, ProGuard-minified, debug-signed [skip ci]"
           git push origin "HEAD:refs/heads/${{ github.ref_name }}"
 
       - name: Upload APK artifacts
@@ -130,8 +130,9 @@ jobs:
           files: dist/*.apk
           body: |
             Ranobe EPUB — полностью локальный редактор EPUB 3 для японских ранобэ.
-            Сборка без подписи (по запросу). Для установки возьмите `*-debug.apk`
-            или подпишите release-версию своим ключом.
+            Release собран с R8-минификацией, только arm64-v8a, подписан стандартным
+            публичным debug-ключом Android — устанавливается напрямую как APK.
+            Для Google Play нужен собственный keystore (добавить секреты — отдельная задача).
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -153,8 +154,9 @@ jobs:
           tag_name: latest
           name: Ranobe EPUB — latest build
           body: |
-            Автоматическая rolling-сборка с ветки `main`. Подпись отсутствует (по запросу).
-            Установка: скачайте `RanobeEPUB-*-debug.apk` и разрешите установку из неизвестных источников.
+            Автоматическая rolling-сборка с ветки `main`. Release подписан стандартным
+            debug-ключом (не production), только arm64-v8a. Установка: скачайте APK и разрешите
+            установку из неизвестных источников.
             После тегов (`git tag v1.0.0 && git push origin v1.0.0`) APK прикрепляется к версионному релизу.
           make_latest: true
         env:
