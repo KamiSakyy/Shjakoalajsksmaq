@@ -108,6 +108,8 @@
     <string name="crash_log_dismiss">Закрыть</string>
     <string name="crash_log_copied">Отчёт скопирован в буфер обмена</string>
     <string name="crash_log_cleared">Отчёт об ошибке очищен</string>
+    <string name="share_epub">Поделиться EPUB</string>
+    <string name="share_chooser">Поделиться EPUB через…</string>
     <string name="about_tagline">Полностью локальный редактор EPUB 3 для японских ранобэ.</string>
     <string name="about_features_title">Возможности</string>
     <string name="about_f1">EPUB 3.0.1: OPF 3.0, nav (epub:type=toc), NCX для совместимости</string>
