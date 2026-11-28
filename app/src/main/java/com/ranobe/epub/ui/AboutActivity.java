@@ -19,6 +19,7 @@ public final class AboutActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityAboutBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        com.ranobe.epub.util.Insets.applyEdgeToEdge(this, binding.getRoot());
 
         String versionName = "1.0.0";
         int versionCode = 1;
@@ -32,7 +33,12 @@ public final class AboutActivity extends AppCompatActivity {
                 info = getPackageManager().getPackageInfo(getPackageName(), 0);
             }
             versionName = info.versionName != null ? info.versionName : versionName;
-            versionCode = (int) info.getLongVersionCode();
+            if (Build.VERSION.SDK_INT >= 28) {
+                versionCode = (int) info.getLongVersionCode();
+            } else {
+                //noinspection deprecation
+                versionCode = info.versionCode;
+            }
         } catch (PackageManager.NameNotFoundException e) {
             // fall back to defaults baked into the resources
         }

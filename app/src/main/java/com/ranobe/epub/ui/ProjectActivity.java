@@ -145,6 +145,7 @@ public final class ProjectActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityProjectBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        com.ranobe.epub.util.Insets.applyEdgeToEdge(this, binding.getRoot());
         setSupportActionBar(binding.toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
@@ -423,17 +424,13 @@ public final class ProjectActivity extends AppCompatActivity {
     }
 
     private void showAddChapterDialog() {
-        final android.widget.EditText input = new android.widget.EditText(this);
-        input.setHint(R.string.dialog_add_chapter_hint);
-        input.setSingleLine(true);
-        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT
-                | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        int horizontal = Math.round(20 * getResources().getDisplayMetrics().density);
-        input.setPadding(horizontal, horizontal / 2, horizontal, horizontal / 2);
+        android.view.View view = getLayoutInflater().inflate(R.layout.dialog_chapter_name, null);
+        final android.widget.EditText input =
+                view.findViewById(R.id.chapter_name_input);
 
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.dialog_add_chapter_title)
-                .setView(input)
+                .setView(view)
                 .setNegativeButton(R.string.cancel_action, null)
                 .setPositiveButton(R.string.create_action, (dialog, which) -> {
                     String title = input.getText() == null ? "" : input.getText().toString().trim();

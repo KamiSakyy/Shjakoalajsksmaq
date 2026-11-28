@@ -19,13 +19,16 @@
         <item name="colorSurfaceContainerHigh">@color/surface_container_high</item>
         <item name="colorSurfaceContainerHighest">@color/surface_variant</item>
         <item name="colorOutline">@color/outline</item>
-        <item name="colorOutlineVariant">@color/outline</item>
+        <item name="colorOutlineVariant">@color/outline_variant</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Ranobe.Small</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Ranobe.Medium</item>
+        <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.Ranobe.Large</item>
         <item name="colorError">@color/error</item>
         <item name="colorOnError">@color/on_error</item>
 
         <item name="android:colorBackground">@color/background</item>
-        <item name="android:statusBarColor">@color/background</item>
-        <item name="android:navigationBarColor">@color/background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
@@ -35,6 +38,20 @@
         <item name="windowSplashScreenBackground">@color/background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash</item>
         <item name="postSplashScreenTheme">@style/Theme.RanobeEpub</item>
+    </style>
+
+    <!-- 2026 M3 Expressive-scale shape appearances. -->
+    <style name="ShapeAppearance.Ranobe.Small" parent="ShapeAppearance.Material3.Corner.Small">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
+    <style name="ShapeAppearance.Ranobe.Medium" parent="ShapeAppearance.Material3.Corner.Medium">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
+    </style>
+    <style name="ShapeAppearance.Ranobe.Large" parent="ShapeAppearance.Material3.Corner.Large">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">28dp</item>
     </style>
 
     <!-- Small caps section heading used across screens. -->

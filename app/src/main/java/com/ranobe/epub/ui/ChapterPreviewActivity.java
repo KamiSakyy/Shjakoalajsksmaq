@@ -29,6 +29,7 @@ public final class ChapterPreviewActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityChapterPreviewBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        com.ranobe.epub.util.Insets.applyEdgeToEdge(this, binding.getRoot());
         setSupportActionBar(binding.toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);

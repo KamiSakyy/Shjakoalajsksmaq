@@ -37,8 +37,8 @@
 
 ## Стек
 
-- Android SDK, **Java 17**, Gradle 8.9 (wrapper), **Android Gradle Plugin 8.7.2**
-- `compileSdk 35` / `targetSdk 35` / `minSdk 26`
+- Android SDK, **Java 17**, Gradle 9.9.1 (wrapper), **Android Gradle Plugin 9.5.1**
+- `compileSdk 36` / `targetSdk 36` / `minSdk 26`
 - AndroidX + Material Components 1.12.0, ViewBinding, RecyclerView, NestedScrollView
 - Чистый Java-движок EPUB (без сетевых и без бинарных зависимостей) — покрыт unit-тестами
 - `core-splashscreen`, Splash Screen API
@@ -70,7 +70,7 @@ assembleRelease (arm64-v8a, ProGuard-минификация, debug-signed)** →
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Требования: JDK 17, Android SDK (platforms;android-35, build-tools;35.0.0).
+Требования: JDK 17, Android SDK (platforms;android-36, build-tools;36.0.0).
 
 ## Структура
 

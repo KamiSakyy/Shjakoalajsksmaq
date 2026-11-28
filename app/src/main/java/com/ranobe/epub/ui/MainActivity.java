@@ -26,7 +26,9 @@ import com.ranobe.epub.epub.EpubExporter;
 import com.ranobe.epub.epub.EpubValidationException;
 import com.ranobe.epub.model.Project;
 import com.ranobe.epub.ui.adapter.ProjectAdapter;
+import com.ranobe.epub.util.CrashLog;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -87,7 +89,9 @@ public final class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+        com.ranobe.epub.util.Insets.applyEdgeToEdge(this, binding.getRoot());
         setSupportActionBar(binding.toolbar);
+        maybeShowCrashLog();
 
         store = new ProjectStore(this);
         adapter = new ProjectAdapter(store, new ProjectAdapter.Listener() {
@@ -252,6 +256,47 @@ public final class MainActivity extends AppCompatActivity {
         } catch (ActivityNotFoundException e) {
             showError(getString(R.string.no_app_to_open));
         }
+    }
+
+    // ------------------------------------------------------------ crash log
+
+    /** Show the previous crash (if any) exactly once per launch, with copy/clear actions. */
+    private void maybeShowCrashLog() {
+        File latest = CrashLog.latestCrash(this);
+        if (latest == null) {
+            return;
+        }
+        String text = CrashLog.readLatestCrash(this);
+        if (text == null) {
+            text = latest.getName();
+        }
+
+        android.widget.TextView view = new android.widget.TextView(this);
+        view.setText(text);
+        view.setTextIsSelectable(true);
+        view.setTextSize(11f);
+        view.setTypeface(android.graphics.Typeface.MONOSPACE);
+        view.setPadding(48, 24, 48, 24);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.addView(view);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.crash_log_title)
+                .setView(scroll)
+                .setPositiveButton(R.string.crash_log_copy, (dialog, which) -> {
+                    android.content.ClipboardManager clipboard =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("crash", text));
+                    }
+                    Toast.makeText(this, R.string.crash_log_copied, Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton(R.string.crash_log_clear, (dialog, which) -> {
+                    CrashLog.deleteCrashes(this);
+                    Toast.makeText(this, R.string.crash_log_cleared, Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton(R.string.crash_log_dismiss, null)
+                .show();
     }
 
     // ------------------------------------------------------------ misc

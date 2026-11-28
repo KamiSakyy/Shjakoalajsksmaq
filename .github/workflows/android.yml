@@ -38,7 +38,7 @@ jobs:
           echo "sdkmanager: ${SM:-not found}"
           if [ -n "$SM" ] && [ -x "$SM" ]; then
             yes | "$SM" --licenses > /dev/null 2>&1 || true
-            "$SM" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools" || echo "WARN: sdkmanager failed; relying on preinstalled SDK"
+            "$SM" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" || echo "WARN: sdkmanager failed; relying on preinstalled SDK"
           else
             echo "WARN: sdkmanager not available; relying on preinstalled SDK"
           fi
@@ -84,8 +84,8 @@ jobs:
         run: |
           set -e
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk "dist/RanobeEPUB-1.0.0-debug-arm64.apk"
-          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/RanobeEPUB-1.0.0-release-arm64.apk"
+          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk "dist/RanobeEPUB-1.1.0-debug-arm64.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk "dist/RanobeEPUB-1.1.0-release-arm64.apk"
           ls -la dist/
 
       - name: Publish clean release APK into handoff/ (this branch only)
@@ -93,10 +93,10 @@ jobs:
         run: |
           set -e
           mkdir -p handoff
-          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk              "handoff/RanobeEPUB-1.0.0-release-arm64.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk              "handoff/RanobeEPUB-1.1.0-release-arm64.apk"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add handoff/RanobeEPUB-1.0.0-release-arm64.apk
+          git add handoff/RanobeEPUB-1.1.0-release-arm64.apk
           if git diff --cached --quiet; then
             echo "handoff APK unchanged — nothing to commit"
             exit 0
