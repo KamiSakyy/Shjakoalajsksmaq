@@ -1,0 +1,5 @@
+// Ranobe EPUB — root build script (plugin versions pinned, nothing resolved from
+// dynamic ranges). Application module lives in :app.
+plugins {
+    id 'com.android.application' version '8.7.2' apply false
+}

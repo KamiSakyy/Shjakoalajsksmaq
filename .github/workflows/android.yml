@@ -1,0 +1,121 @@
+name: Android APK — Ranobe EPUB
+
+on:
+  push:
+    branches: [ main, "arena/**" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Unit tests + assemble APK (debug & unsigned release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          set -e
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Set up Gradle with dependency cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Assemble debug APK (installable, auto debug-key)
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Assemble release APK (UNSIGNED, as requested — без подписи)
+        # If anything ever fails in the unsigned release pipeline, the debug APK
+        # must still be published: it is the installable artifact.
+        continue-on-error: true
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Collect APKs into dist/
+        run: |
+          set -e
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/RanobeEPUB-1.0.0-debug.apk"
+          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/RanobeEPUB-1.0.0-release-unsigned.apk"
+          fi
+          ls -la dist/
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RanobeEPUB-apk
+          path: dist/*.apk
+          retention-days: 30
+          if-no-files-found: error
+
+  release:
+    name: Attach APKs to GitHub Release (tags v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: RanobeEPUB-apk
+          path: dist
+
+      - name: Create GitHub Release with APK files
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          body: |
+            Ranobe EPUB — полностью локальный редактор EPUB 3 для японских ранобэ.
+            Сборка без подписи (по запросу). Для установки возьмите `*-debug.apk`
+            или подпишите release-версию своим ключом.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  latest-release:
+    name: Rolling "latest" release with APKs (main branch)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APKs
+        uses: actions/download-artifact@v4
+        with:
+          name: RanobeEPUB-apk
+          path: dist
+
+      - name: Publish rolling latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Ranobe EPUB — latest build
+          body: |
+            Автоматическая rolling-сборка с ветки `main`. Подпись отсутствует (по запросу).
+            Установка: скачайте `RanobeEPUB-*-debug.apk` и разрешите установку из неизвестных источников.
+            После тегов (`git tag v1.0.0 && git push origin v1.0.0`) APK прикрепляется к версионному релизу.
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

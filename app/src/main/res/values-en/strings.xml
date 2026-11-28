@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ranobe EPUB</string>
+
+    <!-- Library (main) -->
+    <string name="empty_title">Your library is empty</string>
+    <string name="empty_subtitle">Create your first book: cover, chapters, vertical writing and EPUB 3 export — fully offline.</string>
+    <string name="empty_create">Create project</string>
+    <string name="more_options_desc">More actions</string>
+    <string name="fab_create_desc">New project</string>
+    <string name="action_import_backup">Import backup (.json)</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_about">About</string>
+    <string name="menu_export_epub">Export EPUB…</string>
+    <string name="menu_duplicate">Duplicate</string>
+    <string name="menu_delete_project">Delete project</string>
+    <string name="project_meta">Chapters: %1$d  ·  %2$s chars</string>
+    <string name="untitled">Untitled</string>
+    <string name="untitled_author">Unknown author</string>
+
+    <!-- Project screen -->
+    <string name="project_title">Project</string>
+    <string name="section_metadata">Metadata</string>
+    <string name="section_chapters">Chapters</string>
+    <string name="section_export">Publication</string>
+    <string name="label_title">Title *</string>
+    <string name="label_author">Author *</string>
+    <string name="label_language">Language</string>
+    <string name="label_publisher">Publisher</string>
+    <string name="label_series">Series</string>
+    <string name="label_series_helper">Exported as belongs-to-collection (EPUB 3)</string>
+    <string name="label_subjects">Subjects</string>
+    <string name="label_subjects_helper">Comma-separated: fantasy, adventure</string>
+    <string name="label_identifier">Unique identifier (URN)</string>
+    <string name="label_identifier_helper">Leave empty to auto-generate urn:uuid</string>
+    <string name="label_description">Description</string>
+    <string name="vertical_title">Vertical writing</string>
+    <string name="vertical_subtitle">縦書き — right-to-left columns, like real light novels (page-progression-direction="rtl")</string>
+    <string name="cover_choose">Cover…</string>
+    <string name="cover_remove">Remove</string>
+    <string name="cover_desc">Book cover</string>
+    <string name="add_chapter">Chapter</string>
+    <string name="import_txt">Import .txt</string>
+    <string name="chapters_empty">No chapters yet.\nAdd the first one — or import an Aozora Bunko .txt / .md.</string>
+    <string name="export_epub">Export EPUB 3</string>
+    <string name="backup_save">Save backup (.json)</string>
+    <string name="delete_project">Delete project</string>
+    <string name="action_save">Save</string>
+    <string name="save_desc">Save</string>
+    <string name="chapter_count_badge">%1$d</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_delete_project_title">Delete project?</string>
+    <string name="dialog_delete_project_msg">“%1$s” and all of its chapters will be permanently deleted.</string>
+    <string name="delete_action">Delete</string>
+    <string name="cancel_action">Cancel</string>
+    <string name="dialog_add_chapter_title">New chapter</string>
+    <string name="dialog_add_chapter_hint">Title (empty — “Chapter N”)</string>
+    <string name="create_action">Create</string>
+    <string name="dialog_delete_chapter_title">Delete chapter?</string>
+    <string name="dialog_delete_chapter_msg">“%1$s” will be permanently deleted.</string>
+
+    <!-- Results / toasts -->
+    <string name="toast_saved">Saved</string>
+    <string name="toast_epub_exported">EPUB 3 saved</string>
+    <string name="import_txt_done">Imported chapters: %1$d</string>
+    <string name="epub_open">Open</string>
+    <string name="epub_success_title">EPUB 3 is ready</string>
+    <string name="epub_success_msg">“%1$s”\n\nChapters: %2$d  ·  Size: %3$s</string>
+    <string name="backup_saved">Project backup saved</string>
+    <string name="backup_imported">Project imported from backup</string>
+    <string name="error_generic">Error: %1$s</string>
+    <string name="no_app_to_open">No app can open .epub files</string>
+    <string name="perm_denied_settings">Permission permanently denied. Open settings?</string>
+    <string name="open_settings">Settings</string>
+
+    <!-- Chapter editor -->
+    <string name="chapter_editor_title">Chapter</string>
+    <string name="chapter_title_hint">Chapter title</string>
+    <string name="content_hint">Chapter text…</string>
+    <string name="aozora_hint">Aozora markup: 漢字《かんじ》 — ruby (furigana), ｜漢字《かんじ》 — explicit base, ［＃…］ — control notes, stripped on export.</string>
+    <string name="preview_title">Preview</string>
+    <string name="preview_desc">Preview</string>
+    <string name="untitled_chapter">Untitled</string>
+    <string name="chapter_fallback_title">Chapter %1$d</string>
+    <string name="char_count">%1$s chars</string>
+    <string name="move_up_desc">Move up</string>
+    <string name="move_down_desc">Move down</string>
+    <string name="edit_chapter_desc">Edit chapter</string>
+    <string name="delete_chapter_desc">Delete chapter</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="section_defaults">New projects</string>
+    <string name="default_language">Default language</string>
+    <string name="default_vertical">Vertical writing by default</string>
+    <string name="section_storage">Storage &amp; privacy</string>
+    <string name="storage_note">Everything is stored locally in the app sandbox. File exchange uses the system “Open / Save” dialogs (file manager, Google Drive, mail, …).</string>
+    <string name="offline_note">The network is never used: the app has no INTERNET permission. No telemetry, no accounts, no ads.</string>
+    <string name="about_open">About</string>
+
+    <!-- About -->
+    <string name="about_title">About</string>
+    <string name="about_version">Version %1$s (%2$d)</string>
+    <string name="about_tagline">A fully offline EPUB 3 editor for Japanese light novels.</string>
+    <string name="about_features_title">Features</string>
+    <string name="about_f1">EPUB 3.0.1: OPF 3.0, nav (epub:type=toc), NCX for compatibility</string>
+    <string name="about_f2">Vertical writing: writing-mode vertical-rl, page-progression-direction rtl</string>
+    <string name="about_f3">Furigana (ruby) with Aozora Bunko rules: 漢字《かんじ》, ｜base《かんじ》</string>
+    <string name="about_f4">Import .txt / .md with automatic UTF-8, Shift_JIS and CP1251 detection</string>
+    <string name="about_f5">Gallery cover: downscaled to 1600 px and embedded into the EPUB</string>
+    <string name="about_f6">Project backup as .json — the cover is embedded as base64</string>
+    <string name="about_f7">No network, no account, no ads, no telemetry</string>
+    <string name="about_f8">Unit-tested core, built by GitHub Actions</string>
+    <string name="about_components">Components: AndroidX, Material Components for Android (Apache-2.0).</string>
+    <string name="about_close">Close</string>
+
+    <!-- Language list -->
+    <string-array name="language_codes">
+        <item>ja</item><item>ja-JP</item><item>en</item><item>ru</item><item>de</item><item>fr</item>
+        <item>es</item><item>it</item><item>pt</item><item>zh</item><item>zh-Hant</item><item>ko</item><item>uk</item>
+    </string-array>
+    <string-array name="language_labels">
+        <item>日本語 — Japanese (ja)</item>
+        <item>日本語 — Japanese, Japan (ja-JP)</item>
+        <item>English (en)</item>
+        <item>Русский — Russian (ru)</item>
+        <item>Deutsch — German (de)</item>
+        <item>Français — French (fr)</item>
+        <item>Español — Spanish (es)</item>
+        <item>Italiano — Italian (it)</item>
+        <item>Português — Portuguese (pt)</item>
+        <item>中文 (Simplified) — Chinese (zh)</item>
+        <item>中文 (Traditional) — Chinese (zh-Hant)</item>
+        <item>한국어 — Korean (ko)</item>
+        <item>Українська — Ukrainian (uk)</item>
+    </string-array>
+</resources>
