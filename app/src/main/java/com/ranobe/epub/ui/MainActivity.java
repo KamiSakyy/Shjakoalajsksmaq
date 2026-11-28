@@ -266,10 +266,8 @@ public final class MainActivity extends AppCompatActivity {
         if (latest == null) {
             return;
         }
-        String text = CrashLog.readLatestCrash(this);
-        if (text == null) {
-            text = latest.getName();
-        }
+        String text0 = CrashLog.readLatestCrash(this);
+        final String text = text0 == null ? latest.getName() : text0;
 
         android.widget.TextView view = new android.widget.TextView(this);
         view.setText(text);
