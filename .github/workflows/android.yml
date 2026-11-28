@@ -74,24 +74,35 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Assemble debug APK (installable, auto debug-key)
+      - name: Assemble debug APK (installable, auto debug-key, arm64-v8a only)
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Assemble release APK (UNSIGNED, as requested — без подписи)
-        # If anything ever fails in the unsigned release pipeline, the debug APK
-        # must still be published: it is the installable artifact.
-        continue-on-error: true
+      - name: Assemble release APK (arm64-v8a only, ProGuard-minified, UNSIGNED — без подписи)
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
       - name: Collect APKs into dist/
         run: |
           set -e
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/RanobeEPUB-1.0.0-debug.apk"
-          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/RanobeEPUB-1.0.0-release-unsigned.apk"
-          fi
+          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk "dist/RanobeEPUB-1.0.0-debug-arm64.apk"
+          cp app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk "dist/RanobeEPUB-1.0.0-release-arm64-unsigned.apk"
           ls -la dist/
+
+      - name: Publish clean release APK into handoff/ (this branch only)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/arena/01578332-shjakoalajsksmaq'
+        run: |
+          set -e
+          mkdir -p handoff
+          cp app/build/outputs/apk/release/app-arm64-v8a-release-unsigned.apk              "handoff/RanobeEPUB-1.0.0-release-arm64-unsigned.apk"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add handoff/RanobeEPUB-1.0.0-release-arm64-unsigned.apk
+          if git diff --cached --quiet; then
+            echo "handoff APK unchanged — nothing to commit"
+            exit 0
+          fi
+          git commit -m "CI handoff: ARM64 release APK, ProGuard-minified [skip ci]"
+          git push origin "HEAD:refs/heads/${{ github.ref_name }}"
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

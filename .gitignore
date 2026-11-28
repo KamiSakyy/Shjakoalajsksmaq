@@ -4,6 +4,7 @@ build/
 **/build/
 local.properties
 *.apk
+!handoff/*.apk
 *.aab
 *.ap_
 *.dex

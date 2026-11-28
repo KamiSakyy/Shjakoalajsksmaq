@@ -17,6 +17,20 @@ android {
         vectorDrawables {
             useSupportLibrary true
         }
+        // Доставка только под 64-битные ARM-устройства (требование поставки).
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    // Явное ABI-расщепление: собирается ТОЛЬКО arm64-v8a APK.
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'arm64-v8a'
+            universalApk false
+        }
     }
 
     buildTypes {
@@ -27,8 +41,9 @@ android {
         release {
             // Intentionally NO signingConfig: the release artifact is produced UNSIGNED,
             // exactly as requested ("без подписи"). Side-load the debug APK or sign manually.
-            minifyEnabled false
-            shrinkResources false
+            // R8/ProGuard: минификация кода + удаление неиспользуемых ресурсов.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
