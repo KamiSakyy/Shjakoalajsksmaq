@@ -108,6 +108,8 @@
     <string name="crash_log_dismiss">Dismiss</string>
     <string name="crash_log_copied">Crash report copied to clipboard</string>
     <string name="crash_log_cleared">Crash report cleared</string>
+    <string name="share_epub">Share EPUB</string>
+    <string name="share_chooser">Share EPUB via…</string>
     <string name="about_tagline">A fully offline EPUB 3 editor for Japanese light novels.</string>
     <string name="about_features_title">Features</string>
     <string name="about_f1">EPUB 3.0.1: OPF 3.0, nav (epub:type=toc), NCX for compatibility</string>

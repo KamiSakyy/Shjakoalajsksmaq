@@ -607,8 +607,21 @@ public final class ProjectActivity extends AppCompatActivity {
                 .setTitle(R.string.epub_success_title)
                 .setMessage(message)
                 .setNegativeButton(R.string.cancel_action, null)
+                .setNeutralButton(R.string.share_epub, (dialog, which) -> shareEpubUri(uri))
                 .setPositiveButton(R.string.epub_open, (dialog, which) -> openEpubUri(uri))
                 .show();
+    }
+
+    private void shareEpubUri(Uri uri) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType(EpubExporter.MIMETYPE);
+        send.putExtra(Intent.EXTRA_STREAM, uri);
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(send, getString(R.string.share_chooser)));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, R.string.no_app_to_open, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void openEpubUri(Uri uri) {

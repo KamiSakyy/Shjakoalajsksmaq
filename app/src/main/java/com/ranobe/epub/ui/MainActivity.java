@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.ClipData;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.Menu;
@@ -32,7 +34,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public final class MainActivity extends AppCompatActivity {
 
@@ -126,6 +130,15 @@ public final class MainActivity extends AppCompatActivity {
 
         binding.fabCreate.setOnClickListener(v -> createProject());
         binding.emptyCreateButton.setOnClickListener(v -> createProject());
+
+        handleIncomingIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingIntent(intent);
     }
 
     @Override
@@ -167,13 +180,18 @@ public final class MainActivity extends AppCompatActivity {
         binding.fabCreate.setVisibility(empty ? View.GONE : View.VISIBLE);
     }
 
-    private void createProject() {
+    private Project createProjectModel() {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         Project project = new Project();
         project.language = prefs.getString(KEY_DEFAULT_LANGUAGE, Project.DEFAULT_LANGUAGE);
         project.vertical = prefs.getBoolean(KEY_DEFAULT_VERTICAL, true);
         // Ensure a fresh identifier chain for new projects.
         project.id = java.util.UUID.randomUUID().toString();
+        return project;
+    }
+
+    private void createProject() {
+        Project project = createProjectModel();
         try {
             store.save(project);
         } catch (IOException e) {
@@ -239,10 +257,40 @@ public final class MainActivity extends AppCompatActivity {
                 out.write(epub);
                 out.flush();
             }
-            Toast.makeText(this, R.string.toast_epub_exported, Toast.LENGTH_SHORT).show();
+            showExportDoneDialog(uri, project, epub.length);
         } catch (Exception e) {
             showError(e.getMessage());
         }
+    }
+
+    private void showExportDoneDialog(Uri uri, Project project, int byteCount) {
+        String message = getString(R.string.epub_success_msg,
+                ProjectStore.sanitizeFileName(project.displayTitle()) + ".epub",
+                project.chapters.size(),
+                humanSize(byteCount));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.epub_success_title)
+                .setMessage(message)
+                .setNegativeButton(R.string.cancel_action, null)
+                .setNeutralButton(R.string.share_epub, (dialog, which) -> shareEpubUri(uri))
+                .setPositiveButton(R.string.epub_open, (dialog, which) -> {
+                    Intent view = new Intent(Intent.ACTION_VIEW);
+                    view.setDataAndType(uri, EpubExporter.MIMETYPE);
+                    view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    try {
+                        startActivity(view);
+                    } catch (ActivityNotFoundException e) {
+                        Toast.makeText(this, R.string.no_app_to_open, Toast.LENGTH_LONG).show();
+                    }
+                })
+                .show();
+    }
+
+    private static String humanSize(long bytes) {
+        if (bytes < 1024L * 1024L) {
+            return String.format(Locale.US, "%.1f КБ", bytes / 1024.0);
+        }
+        return String.format(Locale.US, "%.2f МБ", bytes / (1024.0 * 1024.0));
     }
 
     private void launchImportBackup() {
@@ -253,6 +301,161 @@ public final class MainActivity extends AppCompatActivity {
                 new String[]{"application/json", "text/plain", "application/octet-stream"});
         try {
             importBackupLauncher.launch(intent);
+        } catch (ActivityNotFoundException e) {
+            showError(getString(R.string.no_app_to_open));
+        }
+    }
+
+    // ------------------------------------------------------------ external import / export
+
+    /** Open-with / share-to: .txt/.md becomes a fresh project with chapters; .json backup is restored. */
+    private void handleIncomingIntent(Intent intent) {
+        if (intent == null || intent.getAction() == null) {
+            return;
+        }
+        String action = intent.getAction();
+        List<Uri> uris = new ArrayList<>();
+        if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            if (Build.VERSION.SDK_INT >= 33) {
+                List<Uri> stream = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri.class);
+                if (stream != null) {
+                    uris.addAll(stream);
+                }
+            } else {
+                //noinspection deprecation
+                List<Uri> stream = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+                if (stream != null) {
+                    uris.addAll(stream);
+                }
+            }
+            collectClipUris(intent, uris);
+        } else if (Intent.ACTION_SEND.equals(action)) {
+            Uri uri = null;
+            if (Build.VERSION.SDK_INT >= 33) {
+                uri = intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
+            } else {
+                //noinspection deprecation
+                uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            }
+            if (uri == null) {
+                uri = intent.getData();
+            }
+            if (uri == null) {
+                List<Uri> fromClip = new ArrayList<>();
+                collectClipUris(intent, fromClip);
+                if (!fromClip.isEmpty()) {
+                    uri = fromClip.get(0);
+                }
+            }
+            if (uri != null) {
+                uris.add(uri);
+            }
+        } else if (Intent.ACTION_VIEW.equals(action)) {
+            Uri uri = intent.getData();
+            if (uri != null) {
+                uris.add(uri);
+            }
+        }
+        if (!uris.isEmpty()) {
+            importExternalFiles(uris);
+        }
+    }
+
+    private static void collectClipUris(Intent intent, List<Uri> out) {
+        ClipData clip = intent.getClipData();
+        if (clip == null) {
+            return;
+        }
+        for (int i = 0; i < clip.getItemCount(); i++) {
+            Uri uri = clip.getItemAt(i).getUri();
+            if (uri != null && !out.contains(uri)) {
+                out.add(uri);
+            }
+        }
+    }
+
+    private void importExternalFiles(List<Uri> uris) {
+        int imported = 0;
+        Project scratch = null;
+        List<com.ranobe.epub.model.Chapter> chapters = new ArrayList<>();
+        Exception lastError = null;
+        for (Uri uri : uris) {
+            String name = displayNameOf(uri, "import.txt");
+            String lower = name.toLowerCase(Locale.ROOT);
+            boolean isJson = lower.endsWith(".json")
+                    || "application/json".equalsIgnoreCase(safeMime(uri));
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) {
+                    throw new IOException("Поток не открыт");
+                }
+                byte[] data = ProjectStore.readAllBytes(in);
+                if (isJson) {
+                    store.importBackup(data);
+                } else {
+                    String text = com.ranobe.epub.epub.ImportDecoder.decode(data);
+                    chapters.addAll(com.ranobe.epub.epub.ChapterImporter.splitIntoChapters(name, text));
+                    if (scratch == null) {
+                        scratch = createProjectModel();
+                    }
+                }
+                imported++;
+            } catch (Exception e) {
+                lastError = e;
+            }
+        }
+
+        if (scratch != null && !chapters.isEmpty()) {
+            scratch.chapters.addAll(chapters);
+            try {
+                store.save(scratch);
+                Toast.makeText(this, getString(R.string.import_txt_done, chapters.size()),
+                        Toast.LENGTH_LONG).show();
+                openProject(scratch);
+                return;
+            } catch (IOException e) {
+                showError(e.getMessage());
+                return;
+            }
+        }
+        if (imported > 0) {
+            Toast.makeText(this, R.string.backup_imported, Toast.LENGTH_LONG).show();
+            refreshProjects();
+        } else if (lastError != null) {
+            showError(lastError.getMessage());
+        }
+    }
+
+    private String safeMime(Uri uri) {
+        try {
+            String mime = getContentResolver().getType(uri);
+            return mime == null ? "" : mime;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String displayNameOf(Uri uri, String fallback) {
+        try (android.database.Cursor cursor = getContentResolver().query(uri,
+                new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String name = cursor.getString(0);
+                if (name != null && !name.isEmpty()) {
+                    return name;
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through
+        }
+        return fallback;
+    }
+
+    private void shareEpubUri(Uri uri) {
+        Intent send = new Intent(Intent.ACTION_SEND);
+        send.setType(EpubExporter.MIMETYPE);
+        send.putExtra(Intent.EXTRA_STREAM, uri);
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(send, getString(R.string.share_chooser)));
         } catch (ActivityNotFoundException e) {
             showError(getString(R.string.no_app_to_open));
         }
